@@ -1,0 +1,77 @@
+name: Build selhide DDK module
+
+on:
+  workflow_dispatch:
+    inputs:
+      kmi:
+        description: Android GKI KMI target
+        required: true
+        default: android16-6.12
+        type: choice
+        options:
+          - android16-6.12
+          - android15-6.6
+          - android14-6.1
+          - android14-5.15
+          - android13-5.15
+      ddk_release:
+        description: DDK image release tag suffix
+        required: true
+        default: "20260313"
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: true
+        default: selhide-popsicle
+        type: string
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    name: Build ${{ github.event.inputs.kmi || 'android16-6.12' }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ github.event.inputs.kmi || 'android16-6.12' }}-${{ github.event.inputs.ddk_release || '20260313' }}
+      options: --privileged
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build module
+        shell: bash
+        env:
+          KMI: ${{ github.event.inputs.kmi || 'android16-6.12' }}
+          DDK_TARGET: ${{ github.event.inputs.kmi || 'android16-6.12' }}
+          SOURCE_DIR: ${{ github.event.inputs.source_dir || 'selhide-popsicle' }}
+        run: |
+          set -euxo pipefail
+          chmod +x ./build_selhide_ddk.sh
+          mkdir -p out
+          SELHIDE_SRC="$PWD/$SOURCE_DIR" \
+          OUTDIR="$PWD/out" \
+          OUT_NAME="selhide-${KMI}.ko" \
+          LOADER=/nonexistent \
+          ./build_selhide_ddk.sh
+
+      - name: Inspect output
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ls -la out
+          for ko in out/*.ko; do
+            echo "== $ko =="
+            file "$ko" || true
+            modinfo "$ko" || true
+            strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' || true
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: selhide-${{ github.event.inputs.kmi || 'android16-6.12' }}
+          path: out/*.ko
+          if-no-files-found: error
