@@ -39,6 +39,10 @@ KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 - The `ddk-min` images currently used by KernelSU are `linux/amd64`. Run the
   GitHub workflow on the default x86_64 runner; do not try to run these images
   directly on Android/arm64 udocker unless qemu-user is configured.
+- The package carries an `android16-6.12` SELinux private-header fallback under
+  `selhide-popsicle/selinux-headers`. Kbuild still prefers headers from the DDK
+  kernel tree when present, but the fallback avoids missing
+  `security/selinux/include/security.h` in slim DDK images.
 - The produced `.ko` still needs the existing staged loader/test path on device.
 - This package intentionally excludes local build products, ACK checkouts,
   Magisk policy dumps, crash logs, and device-specific test output.

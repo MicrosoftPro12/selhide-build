@@ -2,13 +2,17 @@
 # For Xiaomi Mi 17 Pro Max (popsicle), kernel 6.12.x-android16-5.
 KDIR ?= /workdir/ack-android16-6.12
 ARCH ?= arm64
-SELINUX_HDR_ROOT := $(if $(wildcard $(KDIR)/security/selinux),$(KDIR),$(srctree))
+SELINUX_MODULE_SRC := $(if $(src),$(src),$(CURDIR))
+SELINUX_BUNDLED_HDR_ROOT := $(SELINUX_MODULE_SRC)/selinux-headers
+SELINUX_HDR_ROOT := $(if $(wildcard $(KDIR)/security/selinux),$(KDIR),$(if $(wildcard $(srctree)/security/selinux),$(srctree),$(SELINUX_BUNDLED_HDR_ROOT)))
 
 obj-m := selhide.o
 selhide-y := selhide_entry.o selhide_hook_entry.o selhide_main.o selhide_patch_memory.o
 
 ccflags-y += -I$(SELINUX_HDR_ROOT)/security/selinux
 ccflags-y += -I$(SELINUX_HDR_ROOT)/security/selinux/include
+ccflags-y += -I$(SELINUX_BUNDLED_HDR_ROOT)/security/selinux
+ccflags-y += -I$(SELINUX_BUNDLED_HDR_ROOT)/security/selinux/include
 ccflags-y += -Wno-unused-function -Wno-unused-variable
 
 # The stop_machine callback reaches selhide_patch_text_cb_entry first, which

@@ -79,6 +79,9 @@ prepare_src_copy() {
     cp "$src"/*.c "$build_dir"/
     cp "$src"/*.h "$build_dir"/ 2>/dev/null || true
     cp "$src"/*.S "$build_dir"/
+    if [ -d "$src/selinux-headers" ]; then
+        cp -a "$src/selinux-headers" "$build_dir"/
+    fi
 }
 
 print_env() {
