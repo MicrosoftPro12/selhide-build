@@ -612,7 +612,11 @@ static void remove_access_hook(void)
 int __init selhide_real_init(void)
 {
 	int ret;
-	pr_info(SELHIDE_TAG "phase0 loading (kernel %lu)\n", LINUX_VERSION_CODE);
+	pr_info(SELHIDE_TAG "phase0 loading (kernel %u.%u.%u code=%d)\n",
+		(unsigned int)LINUX_VERSION_MAJOR,
+		(unsigned int)LINUX_VERSION_PATCHLEVEL,
+		(unsigned int)LINUX_VERSION_SUBLEVEL,
+		LINUX_VERSION_CODE);
 
 	ret = resolve_kallsyms();
 	if (ret) return ret;
