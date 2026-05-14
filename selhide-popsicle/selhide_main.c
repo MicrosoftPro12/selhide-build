@@ -107,6 +107,21 @@ MODULE_PARM_DESC(patch_self_test,
 
 extern ssize_t selhide_write_access_entry(struct file *file, char *buf,
 					  size_t size);
+extern int selhide_call_string_to_context_struct(void *fn,
+						 struct policydb *policydb,
+						 struct sidtab *sidtab,
+						 char *scontext,
+						 struct context *context,
+						 u32 def_sid);
+extern int selhide_call_sidtab_context_to_sid(void *fn, struct sidtab *sidtab,
+					      struct context *context, u32 *sid);
+extern void selhide_call_context_struct_compute_av(void *fn,
+						   struct policydb *policydb,
+						   struct context *scontext,
+						   struct context *tcontext,
+						   u16 tclass,
+						   struct av_decision *avd,
+						   struct extended_perms *xperms);
 
 static write_op_fn *access_write_slot;
 static write_op_fn orig_access_write;
@@ -262,12 +277,15 @@ static int backup_context_to_sid(const char *scontext, u32 scontext_len,
 		return -ENOMEM;
 
 	*sid = SECSID_NULL;
-	ret = p_string_to_context_struct(&backup_policydb, &backup_sidtab,
-					 scontext2, &context, def_sid);
+	ret = selhide_call_string_to_context_struct(p_string_to_context_struct,
+						   &backup_policydb,
+						   &backup_sidtab, scontext2,
+						   &context, def_sid);
 	if (ret)
 		goto out;
 
-	ret = p_sidtab_context_to_sid(&backup_sidtab, &context, sid);
+	ret = selhide_call_sidtab_context_to_sid(p_sidtab_context_to_sid,
+						&backup_sidtab, &context, sid);
 	context_destroy(&context);
 out:
 	kfree(scontext2);
@@ -316,8 +334,9 @@ static int backup_compute_av_user(u32 ssid, u32 tsid, u16 tclass,
 		return 0;
 	}
 
-	p_context_struct_compute_av(&backup_policydb, scontext, tcontext,
-				    tclass, avd, NULL);
+	selhide_call_context_struct_compute_av(p_context_struct_compute_av,
+					      &backup_policydb, scontext,
+					      tcontext, tclass, avd, NULL);
 	return 0;
 }
 
