@@ -7,3 +7,4 @@ out/
 *.order
 .*.cmd
 .tmp_versions/
+.DS_Store
