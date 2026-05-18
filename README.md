@@ -17,8 +17,8 @@ android16-6.12 / DDK release 20260313
 ```
 
 The source currently targets the popsicle Android 16 / 6.12 implementation. The
-workflow exposes older KMI choices for compile experiments, but those are not
-runtime-compatible until the corresponding source path is implemented.
+text-patch helper now has a legacy nofault I/O path for 5.4-style kernels, but
+the GitHub workflow still depends on available `ddk-min` container tags.
 
 ## Local fallback
 
@@ -33,6 +33,10 @@ Against a local Android common kernel tree:
 ```sh
 KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 ```
+
+For Android 12 / 5.4 qgki targets such as `5.4.147-qgki`, use a matching local
+kernel build tree and exact target vermagic. A matching public `ddk-min`
+`android12-5.4` image was not available when this note was written.
 
 ## Notes
 

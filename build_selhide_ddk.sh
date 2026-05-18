@@ -49,6 +49,8 @@ find_kdir() {
         /kernel \
         /kernel/common \
         /common \
+        /workdir/ack-android12-5.4 \
+        /workdir/ack-android12-5.10 \
         /workdir/ack-android16-6.12 \
         /workdir/ack-android13-5.15
     do

@@ -13,10 +13,53 @@
 #include <linux/mm.h>
 #include <linux/stop_machine.h>
 #include <linux/uaccess.h>
+#include <linux/version.h>
 #include <asm/cacheflush.h>
 #include <asm-generic/fixmap.h>
 
 #include "selhide_patch_memory.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+int selhide_read_kernel_nofault(void *dst, const void *src, size_t size)
+{
+	return (int)probe_kernel_read(dst, src, size);
+}
+
+int selhide_write_kernel_nofault(void *dst, const void *src, size_t size)
+{
+	return (int)probe_kernel_write(dst, src, size);
+}
+
+static void selhide_flush_icache(unsigned long start, unsigned long end)
+{
+	flush_icache_range(start, end);
+}
+
+static void selhide_flush_dcache(void *addr, size_t len)
+{
+	__flush_dcache_area(addr, len);
+}
+#else
+int selhide_read_kernel_nofault(void *dst, const void *src, size_t size)
+{
+	return (int)copy_from_kernel_nofault(dst, src, size);
+}
+
+int selhide_write_kernel_nofault(void *dst, const void *src, size_t size)
+{
+	return (int)copy_to_kernel_nofault(dst, src, size);
+}
+
+static void selhide_flush_icache(unsigned long start, unsigned long end)
+{
+	caches_clean_inval_pou(start, end);
+}
+
+static void selhide_flush_dcache(void *addr, size_t len)
+{
+	dcache_clean_inval_poc((unsigned long)addr, (unsigned long)addr + len);
+}
+#endif
 
 static unsigned long selhide_phys_from_virt(unsigned long addr, int *err)
 {
@@ -93,16 +136,15 @@ static int selhide_patch_text_nosync(void *dst, const void *src, size_t len,
 		return phy_err;
 
 	map = (void *)set_fixmap_offset(FIX_TEXT_POKE0, phy);
-	ret = (int)copy_to_kernel_nofault(map, src, len);
+	ret = selhide_write_kernel_nofault(map, src, len);
 	clear_fixmap(FIX_TEXT_POKE0);
 
 	if (!ret) {
 		if (flags & SELHIDE_PATCH_FLUSH_ICACHE)
-			caches_clean_inval_pou((uintptr_t)dst,
-					       (uintptr_t)dst + len);
+			selhide_flush_icache((uintptr_t)dst,
+					     (uintptr_t)dst + len);
 		if (flags & SELHIDE_PATCH_FLUSH_DCACHE)
-			dcache_clean_inval_poc((unsigned long)dst,
-					       (unsigned long)dst + len);
+			selhide_flush_dcache(dst, len);
 	}
 
 	return ret;

@@ -425,9 +425,9 @@ static int read_kcfi_typeid(void *fn, u32 *typeid)
 	if (!fn)
 		return -EINVAL;
 
-	return copy_from_kernel_nofault(typeid,
-					(void *)((unsigned long)fn - 4),
-					sizeof(*typeid));
+	return selhide_read_kernel_nofault(typeid,
+					   (void *)((unsigned long)fn - 4),
+					   sizeof(*typeid));
 }
 
 static void log_kcfi_typeid(const char *name, void *fn)

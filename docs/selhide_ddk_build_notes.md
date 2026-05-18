@@ -36,6 +36,11 @@ If the container has no `ddk` command but has a prepared kernel build tree:
 KDIR=/path/to/kernel/build FORCE_MAKE=1 ./build_selhide_ddk.sh
 ```
 
+For Android 12 / 5.4 qgki devices, use the local-kernel-tree path. The current
+source can compile-time select `probe_kernel_read/write` on pre-5.10 kernels,
+but the GitHub workflow cannot build a 5.4 target unless a matching 5.4 kernel
+tree or DDK image is supplied.
+
 ## Launch A New Container
 
 On a host with docker or podman:
@@ -48,6 +53,17 @@ For fuxi-style Android 13/14 5.15 work:
 
 ```sh
 KMI=android13-5.15 ./run_selhide_ddk_container.sh
+```
+
+For renoir-style Android 12 5.4 work, do not use `run_selhide_ddk_container.sh`
+unless you have a valid 5.4 DDK image. Use:
+
+```sh
+KDIR=/path/to/android12-5.4/build \
+KMI=android12-5.4 \
+OUT_NAME=selhide-android12-5.4.ko \
+FORCE_MAKE=1 \
+./build_selhide_ddk.sh
 ```
 
 For udocker:
