@@ -24,6 +24,14 @@ on:
         required: true
         default: selhide-popsicle
         type: string
+      require_ddk:
+        description: Require the ddk frontend instead of allowing Kbuild fallback
+        required: true
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
   push:
     branches:
       - main
@@ -53,16 +61,25 @@ jobs:
           KMI: ${{ github.event.inputs.kmi || 'android16-6.12' }}
           DDK_TARGET: ${{ github.event.inputs.kmi || 'android16-6.12' }}
           SOURCE_DIR: ${{ github.event.inputs.source_dir || 'selhide-popsicle' }}
+          REQUIRE_DDK: ${{ github.event.inputs.require_ddk || '0' }}
         run: |
-          set -euxo pipefail
+          set -uo pipefail
           chmod +x ./build_selhide_ddk.sh
           mkdir -p out
-          SELHIDE_SRC="$PWD/$SOURCE_DIR" \
-          OUTDIR="$PWD/out" \
-          OUT_NAME="selhide-${KMI}.ko" \
-          REQUIRE_DDK=1 \
-          LOADER=/nonexistent \
-          ./build_selhide_ddk.sh
+          set +e
+          (
+            set -euxo pipefail
+            SELHIDE_SRC="$PWD/$SOURCE_DIR" \
+            OUTDIR="$PWD/out" \
+            OUT_NAME="selhide-${KMI}.ko" \
+            REQUIRE_DDK="$REQUIRE_DDK" \
+            LOADER=/nonexistent \
+            ./build_selhide_ddk.sh
+          ) 2>&1 | tee out/build.log
+          build_rc="${PIPESTATUS[0]}"
+          set -e
+          printf '%s\n' "$build_rc" > out/build.exit
+          exit "$build_rc"
 
       - name: Inspect and verify output
         shell: bash
@@ -85,10 +102,13 @@ jobs:
           done
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: selhide-${{ github.event.inputs.kmi || 'android16-6.12' }}
           path: |
             out/*.ko
             out/*.txt
+            out/*.log
+            out/*.exit
           if-no-files-found: error
