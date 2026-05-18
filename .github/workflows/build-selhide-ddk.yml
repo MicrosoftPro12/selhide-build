@@ -29,6 +29,7 @@ on:
       - main
       - master
       - experiment
+      - experimental
       - experimental/**
     paths:
       - ".github/workflows/build-selhide-ddk.yml"
