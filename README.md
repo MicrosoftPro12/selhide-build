@@ -10,6 +10,10 @@ This package is a minimal GitHub Actions repo for building the current
 3. Run the workflow manually.
 4. Download the `.ko` from the workflow artifact.
 
+The workflow also runs on pushes to the `experiment` and `experimental/**`
+branches. It sets `REQUIRE_DDK=1`, so the build fails instead of silently using
+the local Kbuild fallback if the real DDK frontend rejects the module layout.
+
 Default target:
 
 ```text

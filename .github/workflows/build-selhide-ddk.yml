@@ -28,9 +28,19 @@ on:
     branches:
       - main
       - master
+      - experiment
+      - experimental/**
+    paths:
+      - ".github/workflows/build-selhide-ddk.yml"
+      - "build_selhide_ddk.sh"
+      - "selhide-popsicle/**"
+      - "docs/selhide_ddk_build_notes.md"
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  ddk-build:
     name: Build ${{ github.event.inputs.kmi || 'android16-6.12' }}
     runs-on: ubuntu-latest
     container:
@@ -39,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Build module
         shell: bash
@@ -54,10 +64,11 @@ jobs:
           SELHIDE_SRC="$PWD/$SOURCE_DIR" \
           OUTDIR="$PWD/out" \
           OUT_NAME="selhide-${KMI}.ko" \
+          REQUIRE_DDK=1 \
           LOADER=/nonexistent \
           ./build_selhide_ddk.sh
 
-      - name: Inspect output
+      - name: Inspect and verify output
         shell: bash
         run: |
           set -euxo pipefail
@@ -67,11 +78,21 @@ jobs:
             file "$ko" || true
             modinfo "$ko" || true
             strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' || true
+            OBJDUMP="$(command -v llvm-objdump || command -v aarch64-linux-gnu-objdump || command -v objdump)"
+            "$OBJDUMP" -dr "$ko" > "${ko}.objdump.txt"
+            sed -n '/<selhide_write_access_impl>:/,/^$/p' "${ko}.objdump.txt" \
+              > "${ko}.selhide_write_access_impl.txt"
+            if grep -E 'paciasp|autiasp|hint[[:space:]]+#(25|29)|\\bx18\\b' "${ko}.selhide_write_access_impl.txt"; then
+              echo "unexpected PAC/SCS instruction in selhide_write_access_impl" >&2
+              exit 1
+            fi
           done
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: selhide-${{ github.event.inputs.kmi || 'android16-6.12' }}
-          path: out/*.ko
+          path: |
+            out/*.ko
+            out/*.txt
           if-no-files-found: error

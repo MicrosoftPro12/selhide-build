@@ -15,6 +15,8 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 #include <asm/cacheflush.h>
+#include <asm/memory.h>
+#include <asm/pgtable.h>
 #include <asm-generic/fixmap.h>
 
 #include "selhide_patch_memory.h"
@@ -61,18 +63,47 @@ static void selhide_flush_dcache(void *addr, size_t len)
 }
 #endif
 
+static bool selhide_is_vmalloc_or_module_addr(unsigned long addr)
+{
+#if defined(MODULES_VADDR) && defined(MODULES_END)
+	if (addr >= MODULES_VADDR && addr < MODULES_END)
+		return true;
+#endif
+#if defined(VMALLOC_START) && defined(VMALLOC_END)
+	if (addr >= VMALLOC_START && addr < VMALLOC_END)
+		return true;
+#endif
+	return false;
+}
+
 static unsigned long selhide_phys_from_virt(unsigned long addr, int *err)
 {
-	struct mm_struct *mm = &init_mm;
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
+	struct page *page;
 
 	*err = 0;
 
-	pgd = pgd_offset(mm, addr);
+	/*
+	 * Module text lives in the module/vmalloc range. Use the kernel's own
+	 * vmalloc walker here so vendor mm_struct layout drift cannot make an
+	 * out-of-tree page-table walk dereference the wrong field.
+	 */
+	if (selhide_is_vmalloc_or_module_addr(addr)) {
+		page = vmalloc_to_page((void *)addr);
+		if (page)
+			return page_to_phys(page) + (addr & ~PAGE_MASK);
+	}
+
+	/*
+	 * Use the live kernel root page table directly instead of init_mm.
+	 * Some vendor trees drift mm_struct layout enough that mm->pgd is
+	 * not a safe dereference from an out-of-tree module.
+	 */
+	pgd = swapper_pg_dir + pgd_index(addr);
 	if (pgd_none(*pgd) || pgd_bad(*pgd))
 		goto fail;
 
@@ -107,6 +138,11 @@ static unsigned long selhide_phys_from_virt(unsigned long addr, int *err)
 	return __pte_to_phys(*pte) + (addr & ~PAGE_MASK);
 
 fail:
+#if defined(CONFIG_ARM64)
+	if (virt_addr_valid((void *)addr))
+		return virt_to_phys((void *)addr);
+	return __pa_symbol((void *)addr);
+#endif
 	*err = -ENOENT;
 	return 0;
 }
@@ -120,7 +156,7 @@ struct selhide_patch_info {
 	int ret;
 };
 
-extern int selhide_patch_text_cb_entry(void *arg);
+extern char selhide_patch_text_cb_entry[];
 
 static int selhide_patch_text_nosync(void *dst, const void *src, size_t len,
 				     int flags)
@@ -132,8 +168,11 @@ static int selhide_patch_text_nosync(void *dst, const void *src, size_t len,
 	int ret;
 
 	phy = selhide_phys_from_virt(p, &phy_err);
-	if (phy_err)
+	if (phy_err) {
+		pr_err("selhide: patch phys lookup failed dst=%px len=%zu err=%d\n",
+		       dst, len, phy_err);
 		return phy_err;
+	}
 
 	map = (void *)set_fixmap_offset(FIX_TEXT_POKE0, phy);
 	ret = selhide_write_kernel_nofault(map, src, len);
@@ -178,7 +217,8 @@ int selhide_patch_text(void *dst, const void *src, size_t len, int flags)
 		.ret = 0,
 	};
 
-	return stop_machine(selhide_patch_text_cb_entry, &info, cpu_online_mask);
+	return stop_machine((int (*)(void *))(unsigned long)selhide_patch_text_cb_entry,
+			    &info, cpu_online_mask);
 }
 
 #endif

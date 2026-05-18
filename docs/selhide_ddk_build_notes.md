@@ -36,6 +36,12 @@ If the container has no `ddk` command but has a prepared kernel build tree:
 KDIR=/path/to/kernel/build FORCE_MAKE=1 ./build_selhide_ddk.sh
 ```
 
+To require the real DDK frontend and fail instead of falling back to Kbuild:
+
+```sh
+REQUIRE_DDK=1 KMI=android16-6.12 ./build_selhide_ddk.sh
+```
+
 For Android 12 / 5.4 qgki devices, use the local-kernel-tree path. The current
 source can compile-time select `probe_kernel_read/write` on pre-5.10 kernels,
 but the GitHub workflow cannot build a 5.4 target unless a matching 5.4 kernel
@@ -97,6 +103,18 @@ OUT_NAME=selhide-local-ack.ko \
 FORCE_MAKE=1 \
 ./build_selhide_ddk.sh
 ```
+
+## GitHub Actions Experiment
+
+The workflow at `.github/workflows/build-selhide-ddk.yml` runs on pushes to
+`experiment` and `experimental/**`, and can also be started manually from the
+Actions tab. It sets `REQUIRE_DDK=1`, so a green action means the DDK frontend
+itself accepted the current external-module layout rather than silently using
+the local `make -C KDIR` fallback.
+
+The artifact contains the `.ko` and a short disassembly excerpt for
+`selhide_write_access_impl`; the workflow fails if that callback regains an
+automatic PAC/SCS return sequence.
 
 ## What Has Been Verified Here
 

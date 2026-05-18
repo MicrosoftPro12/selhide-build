@@ -5,6 +5,9 @@ ARCH ?= arm64
 SELINUX_MODULE_SRC := $(if $(src),$(src),$(CURDIR))
 SELINUX_BUNDLED_HDR_ROOT := $(SELINUX_MODULE_SRC)/selinux-headers
 SELINUX_HDR_ROOT := $(if $(wildcard $(KDIR)/security/selinux),$(KDIR),$(if $(wildcard $(srctree)/security/selinux),$(srctree),$(SELINUX_BUNDLED_HDR_ROOT)))
+SELHIDE_KCFI_FLAGS := $(if $(SELHIDE_WRITE_ACCESS_KCFI_WORD),-DSELHIDE_WRITE_ACCESS_KCFI_WORD=$(SELHIDE_WRITE_ACCESS_KCFI_WORD),)
+SELHIDE_KCFI_FLAGS += $(if $(SELHIDE_WRITE_CONTEXT_KCFI_WORD),-DSELHIDE_WRITE_CONTEXT_KCFI_WORD=$(SELHIDE_WRITE_CONTEXT_KCFI_WORD),)
+SELHIDE_KCFI_FLAGS += $(if $(SELHIDE_SETPROCATTR_KCFI_WORD),-DSELHIDE_SETPROCATTR_KCFI_WORD=$(SELHIDE_SETPROCATTR_KCFI_WORD),)
 
 obj-m := selhide.o
 selhide-y := selhide_entry.o selhide_hook_entry.o selhide_main.o selhide_patch_memory.o
@@ -14,6 +17,9 @@ ccflags-y += -I$(SELINUX_HDR_ROOT)/security/selinux/include
 ccflags-y += -I$(SELINUX_BUNDLED_HDR_ROOT)/security/selinux
 ccflags-y += -I$(SELINUX_BUNDLED_HDR_ROOT)/security/selinux/include
 ccflags-y += -Wno-unused-function -Wno-unused-variable
+ccflags-y += $(SELHIDE_KCFI_FLAGS)
+asflags-y += $(SELHIDE_KCFI_FLAGS)
+AFLAGS_selhide_hook_entry.o += $(SELHIDE_KCFI_FLAGS)
 
 # The stop_machine callback reaches selhide_patch_text_cb_entry first, which
 # supplies the runtime-required KCFI type ID. Keep the C implementation plain:
@@ -21,6 +27,14 @@ ccflags-y += -Wno-unused-function -Wno-unused-variable
 # of selhide_patch_text_cb_impl on stopper threads.
 CFLAGS_REMOVE_selhide_patch_memory.o += -mbranch-protection=pac-ret
 CFLAGS_REMOVE_selhide_patch_memory.o += -fsanitize=shadow-call-stack
+
+# The SEL_ACCESS/SEL_CONTEXT/setprocattr hook callbacks are entered from
+# kernel-owned callback tables through our hand-written KCFI wrappers. On
+# popsicle/6.12, SEL_ACCESS has also FPACed in the compiler-generated PAC/SCS
+# epilogue, so keep the main hook implementation plain and let the wrappers own
+# only the KCFI landing contract.
+CFLAGS_REMOVE_selhide_main.o += -mbranch-protection=pac-ret
+CFLAGS_REMOVE_selhide_main.o += -fsanitize=shadow-call-stack
 
 modules:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) LLVM=$(LLVM) ARCH=$(ARCH) modules

@@ -12,6 +12,7 @@ set -euo pipefail
 #   KMI=android16-6.12 ./build_selhide_ddk.sh
 #   SELHIDE_SRC=/workdir/selhide-popsicle OUTDIR=/workdir/out ./build_selhide_ddk.sh
 #   KDIR=/path/to/kernel/build ./build_selhide_ddk.sh
+#   REQUIRE_DDK=1 KMI=android16-6.12 ./build_selhide_ddk.sh
 #
 # Outputs are copied to OUTDIR, defaulting to the current directory.
 
@@ -21,6 +22,7 @@ ARCH="${ARCH:-arm64}"
 LLVM="${LLVM:-1}"
 KMI="${KMI:-${DDK_TARGET:-android16-6.12}}"
 OUT_NAME="${OUT_NAME:-selhide-${KMI}.ko}"
+REQUIRE_DDK="${REQUIRE_DDK:-0}"
 
 log() {
     printf '[build_selhide_ddk] %s\n' "$*"
@@ -92,6 +94,7 @@ print_env() {
     log "OUTDIR=$OUTDIR"
     log "OUT_NAME=$OUT_NAME"
     log "KMI=$KMI"
+    log "REQUIRE_DDK=$REQUIRE_DDK"
     log "DDK_TARGET=${DDK_TARGET:-}"
     log "KDIR=${KDIR:-}"
     log "PATH=$PATH"
@@ -155,8 +158,11 @@ main() {
             copy_result "$tmp"
             exit 0
         fi
+        [ "$REQUIRE_DDK" != "1" ] || die "ddk build failed and REQUIRE_DDK=1"
         log "ddk build failed; falling back to make -C KDIR if possible"
     fi
+
+    [ "$REQUIRE_DDK" != "1" ] || die "ddk command not available or FORCE_MAKE=1 while REQUIRE_DDK=1"
 
     kdir="$(find_kdir)"
     [ -n "$kdir" ] || die "could not find KDIR; set KDIR=/path/to/kernel/build"
