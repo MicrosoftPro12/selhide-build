@@ -13,3 +13,5 @@ test_artifact_*.txt
 test_selhide_dirtysepolicy2_popsicle_*.txt
 stress_selhide_dirtysepolicy2_popsicle_*.txt
 stress_round_*.txt
+stress_summary_*.txt
+selhide_dirtysepolicy2_summary_*.txt

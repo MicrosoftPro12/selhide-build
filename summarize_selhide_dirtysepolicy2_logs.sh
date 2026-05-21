@@ -75,5 +75,5 @@ summarize_one() {
     fi
 } > "$OUT"
 
-cat "$OUT"
+[ "${SUMMARY_CAT:-1}" = "1" ] && cat "$OUT"
 exit 0

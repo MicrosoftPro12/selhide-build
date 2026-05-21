@@ -169,6 +169,51 @@ run_context_probes() {
     fi
 }
 
+launch_dirtysepolicy_app() {
+    monkey_rc=127
+    am_rc=127
+    component=""
+
+    if command -v monkey >/dev/null 2>&1; then
+        monkey -p "$APP_PKG" -c android.intent.category.LAUNCHER 1 2>&1
+        monkey_rc=$?
+        echo "monkey_exit=$monkey_rc"
+        [ "$monkey_rc" = "0" ] && return 0
+    else
+        echo "SKIP: monkey not available"
+    fi
+
+    if command -v cmd >/dev/null 2>&1; then
+        component="$(cmd package resolve-activity --brief "$APP_PKG" 2>/dev/null | tail -n 1 | tr -d '\r')"
+        case "$component" in
+            */*) echo "resolved_activity=$component" ;;
+            *)
+                component="$(cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$APP_PKG" 2>/dev/null | tail -n 1 | tr -d '\r')"
+                case "$component" in
+                    */*) echo "resolved_activity=$component" ;;
+                    *) echo "resolved_activity=$component"; component="" ;;
+                esac
+                ;;
+        esac
+    fi
+
+    if command -v am >/dev/null 2>&1; then
+        if [ -n "$component" ]; then
+            am start -n "$component" 2>&1
+            am_rc=$?
+            echo "am_start_component_exit=$am_rc"
+        else
+            am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$APP_PKG" 2>&1
+            am_rc=$?
+            echo "am_start_package_exit=$am_rc"
+        fi
+        return "$am_rc"
+    fi
+
+    echo "SKIP: am not available"
+    return "$monkey_rc"
+}
+
 cleanup_module() {
     if is_loaded; then
         log_section rmmod_cleanup
@@ -259,11 +304,7 @@ main() {
         if command -v am >/dev/null 2>&1; then
             am force-stop "$APP_PKG" 2>&1 || true
         fi
-        if command -v monkey >/dev/null 2>&1; then
-            monkey -p "$APP_PKG" -c android.intent.category.LAUNCHER 1 2>&1 || true
-        else
-            echo "SKIP: monkey not available"
-        fi
+        launch_dirtysepolicy_app || true
         sleep "$APP_WAIT_SECONDS"
         if command -v logcat >/dev/null 2>&1; then
             logcat -d -t 300 2>/dev/null | grep -iE 'DirtySepolicy|dirty sepolicy|no dirty|not found|WARNING:|ERROR:' || true

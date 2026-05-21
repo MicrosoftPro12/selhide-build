@@ -25,6 +25,7 @@ main() {
     pass=0
     fail=0
     i=1
+    round_logs=""
 
     log_section meta
     date
@@ -42,6 +43,7 @@ main() {
 
     while [ "$i" -le "$ROUNDS" ]; do
         round_out="./stress_round_${i}_$(date +%Y%m%d_%H%M%S).txt"
+        round_logs="$round_logs $round_out"
         log_section "round_$i"
         echo "round_log=$round_out"
         OUT="$round_out" RUN_PROBES="$ROUND_PROBES" RUN_APP="$RUN_APP" sh "$TEST_SH"
@@ -80,7 +82,13 @@ main() {
     echo "pass=$pass"
     echo "fail=$fail"
     if [ -f "$SUMMARY_SH" ]; then
-        sh "$SUMMARY_SH" ./stress_round_*.txt || true
+        summary_out="./stress_summary_$(date +%Y%m%d_%H%M%S).txt"
+        echo "summary_log=$summary_out"
+        if OUT="$summary_out" SUMMARY_CAT=0 sh "$SUMMARY_SH" $round_logs; then
+            cat "$summary_out" 2>/dev/null || true
+        else
+            echo "WARN: summary failed"
+        fi
     fi
 
     [ "$fail" = "0" ]
