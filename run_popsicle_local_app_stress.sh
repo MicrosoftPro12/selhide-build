@@ -44,16 +44,20 @@ KO="${KO:-$(pick_file \
 
 LOADER="${LOADER:-$(pick_exec \
     ./kallsyms_init_module \
+    ../kallsyms_init_module \
     /workdir/kallsyms_init_module \
     ./out-popsicle-6.12-exp-v2/kallsyms_init_module \
+    ../out-popsicle-6.12-exp-v2/kallsyms_init_module \
     /workdir/out-popsicle-6.12-exp-v2/kallsyms_init_module \
     2>/dev/null || true)}"
 
 POLICY_PATH="${POLICY_PATH:-$(pick_file \
     /debug_ramdisk/.magisk/selinux/load \
     ./load \
+    ../load \
     /workdir/load \
     ./out-popsicle-6.12-exp-v2/load \
+    ../out-popsicle-6.12-exp-v2/load \
     /workdir/out-popsicle-6.12-exp-v2/load \
     2>/dev/null || true)}"
 
@@ -84,7 +88,7 @@ if [ -z "$KO" ] || [ -z "$LOADER" ] || [ -z "$POLICY_PATH" ] || [ -z "$STRESS_SH
         echo "test_sh=$TEST_SH"
         echo "summary_sh=$SUMMARY_SH"
         echo "pwd=$(pwd)"
-        echo "hint: put selhide-android16-6.12.ko, kallsyms_init_module, and load in this directory, or run from /workdir/selhide-build."
+        echo "hint: put selhide-android16-6.12.ko, kallsyms_init_module, and load in this directory or its parent."
     } > "$OUT" 2>&1
     echo "$OUT"
     exit 2
