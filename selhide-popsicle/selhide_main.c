@@ -81,6 +81,14 @@ typedef void (*context_struct_compute_av_fn)(struct policydb *,
 typedef void (*policydb_destroy_fn)(struct policydb *);
 typedef void (*sidtab_destroy_fn)(struct sidtab *);
 
+#ifndef SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+#define SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS 1
+#else
+#define SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS 0
+#endif
+#endif
+
 static const char *const load_paths[] = {
 	"/debug_ramdisk/.magisk/selinux/load",
 	"/workdir/load",
@@ -295,11 +303,18 @@ static int resolve_syms(void)
 		pr_err(SELHIDE_TAG "setprocattr_hook requires clean_access=1\n");
 		return -EINVAL;
 	}
+#if SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS
 	if (enable_setprocattr_hook &&
 	    (!p_static_calls_table || !p_selinux_setprocattr)) {
 		pr_err(SELHIDE_TAG "setprocattr_hook requested but LSM symbols are missing\n");
 		return -ENOENT;
 	}
+#else
+	if (enable_setprocattr_hook) {
+		pr_err(SELHIDE_TAG "setprocattr_hook is not supported on this kernel\n");
+		return -EOPNOTSUPP;
+	}
+#endif
 	return 0;
 }
 
@@ -1023,6 +1038,7 @@ static void remove_context_hook(void)
 	}
 }
 
+#if SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS
 static int prepare_setprocattr_target(void)
 {
 	int i;
@@ -1055,6 +1071,13 @@ static int prepare_setprocattr_target(void)
 	pr_err(SELHIDE_TAG "SELinux setprocattr hook slot not found\n");
 	return -ENOENT;
 }
+#else
+static int prepare_setprocattr_target(void)
+{
+	pr_info(SELHIDE_TAG "setprocattr hook disabled on this kernel family\n");
+	return -EOPNOTSUPP;
+}
+#endif
 
 static int install_setprocattr_hook(void)
 {

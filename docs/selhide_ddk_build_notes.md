@@ -43,9 +43,11 @@ REQUIRE_DDK=1 KMI=android16-6.12 ./build_selhide_ddk.sh
 ```
 
 For Android 12 / 5.4 qgki devices, use the local-kernel-tree path. The current
-source can compile-time select `probe_kernel_read/write` on pre-5.10 kernels,
-but the GitHub workflow cannot build a 5.4 target unless a matching 5.4 kernel
-tree or DDK image is supplied.
+source can compile-time select `probe_kernel_read/write` on pre-5.10 kernels and
+disables the Android 16 `setprocattr` static-call hook on 5.4 at compile time.
+The GitHub workflow has a renoir-specific manual path that prepares an Android
+common `android12-5.4.147_r00` tree from source and builds against the checked-in
+renoir config.
 
 ## Launch A New Container
 
@@ -70,6 +72,19 @@ KMI=android12-5.4 \
 OUT_NAME=selhide-android12-5.4.ko \
 FORCE_MAKE=1 \
 ./build_selhide_ddk.sh
+```
+
+The checked-in renoir CI config is:
+
+```text
+configs/renoir-5.4.147-qgki-ga2bfd24da692.config
+```
+
+It pins `CONFIG_LOCALVERSION="-qgki-ga2bfd24da692"` so the artifact vermagic
+matches the test device kernel:
+
+```text
+5.4.147-qgki-ga2bfd24da692 SMP preempt mod_unload modversions aarch64
 ```
 
 For udocker:
@@ -108,9 +123,15 @@ FORCE_MAKE=1 \
 
 The workflow at `.github/workflows/build-selhide-ddk.yml` runs on pushes to
 `experiment` and `experimental/**`, and can also be started manually from the
-Actions tab. It sets `REQUIRE_DDK=1`, so a green action means the DDK frontend
-itself accepted the current external-module layout rather than silently using
-the local `make -C KDIR` fallback.
+Actions tab.
+
+Pushes build the popsicle target. For strict DDK frontend validation, start the
+workflow manually with a non-5.4 KMI and `require_ddk=1`.
+
+For renoir, start the workflow manually with `kmi=android12-5.4`. That job does
+not use a `ddk-min` image; it downloads Android common
+`android12-5.4.147_r00`, prepares it with the checked-in renoir config, then
+uses the local Kbuild fallback intentionally.
 
 The artifact contains the `.ko` and a short disassembly excerpt for
 `selhide_write_access_impl`; the workflow fails if that callback regains an

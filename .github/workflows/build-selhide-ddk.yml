@@ -14,6 +14,7 @@ on:
           - android14-6.1
           - android14-5.15
           - android13-5.15
+          - android12-5.4
       ddk_release:
         description: DDK image release tag suffix
         required: true
@@ -45,6 +46,7 @@ permissions:
 
 jobs:
   ddk-build:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.kmi != 'android12-5.4' }}
     name: Build ${{ github.event.inputs.kmi || 'android16-6.12' }}
     runs-on: ubuntu-latest
     container:
@@ -106,6 +108,93 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: selhide-${{ github.event.inputs.kmi || 'android16-6.12' }}
+          path: |
+            out/*.ko
+            out/*.txt
+            out/*.log
+            out/*.exit
+          if-no-files-found: error
+
+  renoir-ack-build:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.kmi == 'android12-5.4' }}
+    name: Build renoir android12-5.4
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ACK_URL: https://android.googlesource.com/kernel/common/+archive/refs/tags/android12-5.4.147_r00.tar.gz
+      ACK_DIR: ${{ github.workspace }}/ack-android12-5.4.147
+      SOURCE_DIR: ${{ github.event.inputs.source_dir || 'selhide-popsicle' }}
+      RENOIR_CONFIG: configs/renoir-5.4.147-qgki-ga2bfd24da692.config
+      OUT_NAME: selhide-renoir-android12-5.4.147-qgki.ko
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Android 12 5.4 ACK tree
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$ACK_DIR" out
+          curl -L --fail --retry 5 --retry-delay 10 \
+            "$ACK_URL" \
+            -o out/kernel_common-android12-5.4.147_r00.tar.gz
+          tar -xzf out/kernel_common-android12-5.4.147_r00.tar.gz -C "$ACK_DIR"
+          if [ ! -f "$ACK_DIR/Makefile" ]; then
+            nested="$(find "$ACK_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+            if [ -z "$nested" ] || [ ! -f "$nested/Makefile" ]; then
+              echo "could not locate extracted ACK Makefile" >&2
+              find "$ACK_DIR" -maxdepth 2 -type f -name Makefile -print >&2
+              exit 1
+            fi
+            shopt -s dotglob
+            mv "$nested"/* "$ACK_DIR"/
+            rmdir "$nested"
+          fi
+          cp "$RENOIR_CONFIG" "$ACK_DIR/.config"
+          make -C "$ACK_DIR" ARCH=arm64 LLVM=1 olddefconfig prepare modules_prepare \
+            2>&1 | tee out/renoir-kernel-prepare.log
+
+      - name: Build renoir module
+        shell: bash
+        run: |
+          set -uo pipefail
+          chmod +x ./build_selhide_ddk.sh
+          set +e
+          (
+            set -euxo pipefail
+            SELHIDE_SRC="$PWD/$SOURCE_DIR" \
+            OUTDIR="$PWD/out" \
+            OUT_NAME="$OUT_NAME" \
+            KMI=android12-5.4 \
+            DDK_TARGET=android12-5.4 \
+            KDIR="$ACK_DIR" \
+            FORCE_MAKE=1 \
+            LLVM=1 \
+            LOADER=/nonexistent \
+            ./build_selhide_ddk.sh
+          ) 2>&1 | tee out/renoir-build.log
+          build_rc="${PIPESTATUS[0]}"
+          set -e
+          printf '%s\n' "$build_rc" > out/renoir-build.exit
+          exit "$build_rc"
+
+      - name: Inspect renoir output
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ls -la out
+          ko="out/$OUT_NAME"
+          file "$ko" || true
+          modinfo "$ko" || true
+          strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' | tee out/renoir-modinfo-strings.txt
+          grep -q '^vermagic=5\.4\.147-qgki-ga2bfd24da692 ' out/renoir-modinfo-strings.txt
+
+      - name: Upload renoir artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selhide-renoir-android12-5.4.147-qgki
           path: |
             out/*.ko
             out/*.txt

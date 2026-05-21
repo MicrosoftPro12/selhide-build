@@ -1,7 +1,8 @@
 # selhide DDK action package
 
 This package is a minimal GitHub Actions repo for building the current
-`selhide-popsicle` kernel module inside `ghcr.io/ylarod/ddk-min`.
+`selhide-popsicle` kernel module through either `ghcr.io/ylarod/ddk-min`
+or a prepared Android common kernel tree.
 
 ## Use
 
@@ -11,9 +12,10 @@ This package is a minimal GitHub Actions repo for building the current
 4. Download the `.ko` from the workflow artifact.
 
 The workflow also runs on pushes to the `experiment` and `experimental/**`
-branches. Push builds allow the local Kbuild fallback inside the DDK container
-so artifacts keep flowing while the experiment is moving. Manual workflow runs
-can set `require_ddk=1` when the goal is strict DDK frontend validation.
+branches. Push builds target popsicle and allow the local Kbuild fallback inside
+the DDK container so artifacts keep flowing while the experiment is moving.
+Manual workflow runs can set `require_ddk=1` when the goal is strict DDK
+frontend validation.
 
 Default target:
 
@@ -39,9 +41,11 @@ Against a local Android common kernel tree:
 KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 ```
 
-For Android 12 / 5.4 qgki targets such as `5.4.147-qgki`, use a matching local
-kernel build tree and exact target vermagic. A matching public `ddk-min`
-`android12-5.4` image was not available when this note was written.
+For renoir / Android 12 / 5.4.147-qgki, run the workflow manually with
+`kmi=android12-5.4`. That path downloads the Android common
+`android12-5.4.147_r00` source archive, applies
+`configs/renoir-5.4.147-qgki-ga2bfd24da692.config`, prepares the tree, and
+builds `selhide-renoir-android12-5.4.147-qgki.ko`.
 
 ## Notes
 

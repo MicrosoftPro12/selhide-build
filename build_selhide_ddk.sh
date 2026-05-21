@@ -52,6 +52,7 @@ find_kdir() {
         /kernel/common \
         /common \
         /workdir/ack-android12-5.4 \
+        /workdir/ack-android12-5.4.147 \
         /workdir/ack-android12-5.10 \
         /workdir/ack-android16-6.12 \
         /workdir/ack-android13-5.15
@@ -129,7 +130,7 @@ build_with_make() {
     kdir="$2"
 
     log "building with make -C $kdir M=$build_dir"
-    make -C "$kdir" M="$build_dir" ARCH="$ARCH" LLVM="$LLVM" KBUILD_MODPOST_WARN=1 clean modules
+    make -C "$kdir" M="$build_dir" KDIR="$kdir" ARCH="$ARCH" LLVM="$LLVM" KBUILD_MODPOST_WARN=1 clean modules
 }
 
 build_with_ddk() {
