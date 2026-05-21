@@ -11,8 +11,9 @@ This package is a minimal GitHub Actions repo for building the current
 4. Download the `.ko` from the workflow artifact.
 
 The workflow also runs on pushes to the `experiment` and `experimental/**`
-branches. It sets `REQUIRE_DDK=1`, so the build fails instead of silently using
-the local Kbuild fallback if the real DDK frontend rejects the module layout.
+branches. Push builds allow the local Kbuild fallback inside the DDK container
+so artifacts keep flowing while the experiment is moving. Manual workflow runs
+can set `require_ddk=1` when the goal is strict DDK frontend validation.
 
 Default target:
 
@@ -52,5 +53,8 @@ kernel build tree and exact target vermagic. A matching public `ddk-min`
   kernel tree when present, but the fallback avoids missing
   `security/selinux/include/security.h` in slim DDK images.
 - The produced `.ko` still needs the existing staged loader/test path on device.
+- On-device testing is intended to use the one-click Android shell wrappers:
+  `run_popsicle_local_smoke.sh` for one conservative load/probe/unload cycle,
+  or `run_popsicle_local_app_stress.sh` for three DirtySepolicy APK rounds.
 - This package intentionally excludes local build products, ACK checkouts,
   Magisk policy dumps, crash logs, and device-specific test output.

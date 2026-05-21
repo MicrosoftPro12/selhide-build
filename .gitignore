@@ -8,3 +8,8 @@ out/
 .*.cmd
 .tmp_versions/
 .DS_Store
+artifacts/
+test_artifact_*.txt
+test_selhide_dirtysepolicy2_popsicle_*.txt
+stress_selhide_dirtysepolicy2_popsicle_*.txt
+stress_round_*.txt
