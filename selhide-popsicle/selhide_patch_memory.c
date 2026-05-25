@@ -42,6 +42,8 @@ static void selhide_flush_dcache(void *addr, size_t len)
 	__flush_dcache_area(addr, len);
 }
 #else
+extern void caches_clean_inval_pou(unsigned long start, unsigned long end);
+
 int selhide_read_kernel_nofault(void *dst, const void *src, size_t size)
 {
 	return (int)copy_from_kernel_nofault(dst, src, size);
@@ -57,10 +59,17 @@ static void selhide_flush_icache(unsigned long start, unsigned long end)
 	caches_clean_inval_pou(start, end);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+static void selhide_flush_dcache(void *addr, size_t len)
+{
+	__clean_dcache_area_pou(addr, len);
+}
+#else
 static void selhide_flush_dcache(void *addr, size_t len)
 {
 	dcache_clean_inval_poc((unsigned long)addr, (unsigned long)addr + len);
 }
+#endif
 #endif
 
 static bool selhide_is_vmalloc_or_module_addr(unsigned long addr)
