@@ -1,0 +1,117 @@
+name: Build selhide LKM matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      ddk_release:
+        description: DDK image release tag suffix
+        required: true
+        default: "20260313"
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: true
+        default: selhide-popsicle
+        type: string
+      require_ddk:
+        description: Require the ddk frontend instead of allowing Kbuild fallback
+        required: true
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
+      include_ack:
+        description: Build checked-in ACK/Kbuild fallback targets
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "0"
+      verify_disassembly:
+        description: Verify selected callback disassembly
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "0"
+  workflow_call:
+    inputs:
+      ddk_release:
+        description: DDK image release tag suffix
+        required: false
+        default: "20260313"
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: false
+        default: selhide-popsicle
+        type: string
+      require_ddk:
+        description: Require the ddk frontend instead of allowing Kbuild fallback
+        required: false
+        default: "0"
+        type: string
+      include_ack:
+        description: Build checked-in ACK/Kbuild fallback targets
+        required: false
+        default: "1"
+        type: string
+      verify_disassembly:
+        description: Verify selected callback disassembly
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ddk-lkm:
+    name: DDK ${{ matrix.kmi }}
+    strategy:
+      fail-fast: false
+      matrix:
+        kmi:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+    uses: ./.github/workflows/ddk-selhide-lkm.yml
+    with:
+      kmi: ${{ matrix.kmi }}
+      ddk_release: ${{ inputs.ddk_release || '20260313' }}
+      source_dir: ${{ inputs.source_dir || 'selhide-popsicle' }}
+      require_ddk: ${{ inputs.require_ddk || '0' }}
+      verify_disassembly: ${{ inputs.verify_disassembly || '1' }}
+
+  ack-lkm:
+    name: ACK ${{ matrix.name }}
+    if: ${{ inputs.include_ack != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: renoir-android12-5.4.147-qgki
+            kmi: android12-5.4
+            ack_url: https://android.googlesource.com/kernel/common/+archive/refs/tags/android12-5.4.147_r00.tar.gz
+            ack_dir_name: ack-android12-5.4.147
+            config_path: configs/renoir-5.4.147-qgki-ga2bfd24da692.config
+            out_name: selhide-renoir-android12-5.4.147-qgki.ko
+            expected_vermagic: '^vermagic=5\.4\.147-qgki-ga2bfd24da692 '
+            artifact_name: selhide-renoir-android12-5.4.147-qgki
+    uses: ./.github/workflows/ack-selhide-lkm.yml
+    with:
+      kmi: ${{ matrix.kmi }}
+      ack_url: ${{ matrix.ack_url }}
+      ack_dir_name: ${{ matrix.ack_dir_name }}
+      config_path: ${{ matrix.config_path }}
+      source_dir: ${{ inputs.source_dir || 'selhide-popsicle' }}
+      out_name: ${{ matrix.out_name }}
+      expected_vermagic: ${{ matrix.expected_vermagic }}
+      artifact_name: ${{ matrix.artifact_name }}

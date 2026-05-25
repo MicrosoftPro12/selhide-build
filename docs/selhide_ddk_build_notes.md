@@ -119,7 +119,7 @@ FORCE_MAKE=1 \
 ./build_selhide_ddk.sh
 ```
 
-## GitHub Actions Experiment
+## GitHub Actions
 
 The workflow at `.github/workflows/build-selhide-ddk.yml` runs on pushes to
 `experiment` and `experimental/**`, and can also be started manually from the
@@ -140,6 +140,30 @@ addition to the normal popsicle push build.
 The artifact contains the `.ko` and a short disassembly excerpt for
 `selhide_write_access_impl`; the workflow fails if that callback regains an
 automatic PAC/SCS return sequence.
+
+The KernelSU-style reusable flow is:
+
+- `.github/workflows/build-selhide-lkm.yml`: matrix entry point.
+- `.github/workflows/ddk-selhide-lkm.yml`: single DDK KMI target, using
+  `ghcr.io/ylarod/ddk-min:<kmi>-<release>`.
+- `.github/workflows/ack-selhide-lkm.yml`: single ACK/Kbuild target, using a
+  source archive URL and checked-in config.
+
+Use the DDK path for KMI targets that have `ddk-min` images:
+
+```text
+android12-5.10
+android13-5.10
+android13-5.15
+android14-5.15
+android14-6.1
+android15-6.6
+android16-6.12
+```
+
+Use the ACK/Kbuild path for targets without a DDK image or with a pinned vendor
+localversion. The first checked-in fallback is renoir
+`5.4.147-qgki-ga2bfd24da692`.
 
 ## What Has Been Verified Here
 

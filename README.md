@@ -7,15 +7,16 @@ or a prepared Android common kernel tree.
 ## Use
 
 1. Upload this directory as a GitHub repository.
-2. Open `Actions -> Build selhide DDK module`.
+2. Open `Actions -> Build selhide LKM matrix` for the reusable matrix flow, or
+   `Actions -> Build selhide DDK module` for the older all-in-one experiment.
 3. Run the workflow manually.
 4. Download the `.ko` from the workflow artifact.
 
-The workflow also runs on pushes to the `experiment` and `experimental/**`
-branches. Push builds target popsicle and allow the local Kbuild fallback inside
-the DDK container so artifacts keep flowing while the experiment is moving.
-Manual workflow runs can set `require_ddk=1` when the goal is strict DDK
-frontend validation.
+The older all-in-one workflow also runs on pushes to the `experiment` and
+`experimental/**` branches. Push builds target popsicle and allow the local
+Kbuild fallback inside the DDK container so artifacts keep flowing while the
+experiment is moving. Manual workflow runs can set `require_ddk=1` when the goal
+is strict DDK frontend validation.
 
 Default target:
 
@@ -46,6 +47,19 @@ For renoir / Android 12 / 5.4.147-qgki, run the workflow manually with
 `android12-5.4.147_r00` source archive, applies
 `configs/renoir-5.4.147-qgki-ga2bfd24da692.config`, prepares the tree, and
 builds `selhide-renoir-android12-5.4.147-qgki.ko`.
+
+## Reusable GitHub Actions
+
+The KernelSU-style LKM flow is split into small reusable workflows:
+
+- `.github/workflows/build-selhide-lkm.yml` is the matrix entry point. It builds
+  KernelSU-style DDK KMI targets from `android12-5.10` through `android16-6.12`
+  and can also include checked-in ACK/Kbuild fallback targets.
+- `.github/workflows/ddk-selhide-lkm.yml` builds one DDK-backed KMI target using
+  `ghcr.io/ylarod/ddk-min:<kmi>-<release>`.
+- `.github/workflows/ack-selhide-lkm.yml` builds one source-archive-backed
+  target from a kernel archive URL plus a checked-in `.config`; renoir
+  `android12-5.4.147-qgki` is the first configured fallback target.
 
 ## Notes
 

@@ -1,0 +1,148 @@
+name: Build selhide LKM (DDK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kmi:
+        description: Android GKI KMI target
+        required: true
+        default: android16-6.12
+        type: choice
+        options:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+      ddk_release:
+        description: DDK image release tag suffix
+        required: true
+        default: "20260313"
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: true
+        default: selhide-popsicle
+        type: string
+      require_ddk:
+        description: Require the ddk frontend instead of allowing Kbuild fallback
+        required: true
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
+      verify_disassembly:
+        description: Verify the selected callback disassembly
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "0"
+          - "1"
+  workflow_call:
+    inputs:
+      kmi:
+        description: Android GKI KMI target
+        required: true
+        type: string
+      ddk_release:
+        description: DDK image release tag suffix
+        required: false
+        default: "20260313"
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: false
+        default: selhide-popsicle
+        type: string
+      require_ddk:
+        description: Require the ddk frontend instead of allowing Kbuild fallback
+        required: false
+        default: "0"
+        type: string
+      verify_disassembly:
+        description: Verify the selected callback disassembly
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ddk-build:
+    name: Build ${{ inputs.kmi }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-${{ inputs.ddk_release }}
+      options: --privileged
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build module
+        shell: bash
+        env:
+          KMI: ${{ inputs.kmi }}
+          DDK_TARGET: ${{ inputs.kmi }}
+          SOURCE_DIR: ${{ inputs.source_dir }}
+          REQUIRE_DDK: ${{ inputs.require_ddk }}
+        run: |
+          set -uo pipefail
+          chmod +x ./build_selhide_ddk.sh
+          mkdir -p out
+          set +e
+          (
+            set -euxo pipefail
+            SELHIDE_SRC="$PWD/$SOURCE_DIR" \
+            OUTDIR="$PWD/out" \
+            OUT_NAME="selhide-${KMI}.ko" \
+            REQUIRE_DDK="$REQUIRE_DDK" \
+            LOADER=/nonexistent \
+            ./build_selhide_ddk.sh
+          ) 2>&1 | tee out/build.log
+          build_rc="${PIPESTATUS[0]}"
+          set -e
+          printf '%s\n' "$build_rc" > out/build.exit
+          exit "$build_rc"
+
+      - name: Inspect and verify output
+        if: ${{ inputs.verify_disassembly == '1' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ls -la out
+          for ko in out/*.ko; do
+            echo "== $ko =="
+            file "$ko" || true
+            modinfo "$ko" || true
+            strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' || true
+            OBJDUMP="$(command -v llvm-objdump || command -v aarch64-linux-gnu-objdump || command -v objdump || true)"
+            if [ -z "$OBJDUMP" ]; then
+              echo "no objdump found; skipping disassembly check" >&2
+              continue
+            fi
+            "$OBJDUMP" -dr "$ko" > "${ko}.objdump.txt"
+            sed -n '/<selhide_write_access_impl>:/,/^$/p' "${ko}.objdump.txt" \
+              > "${ko}.selhide_write_access_impl.txt"
+            if grep -E 'paciasp|autiasp|hint[[:space:]]+#(25|29)|\\bx18\\b' "${ko}.selhide_write_access_impl.txt"; then
+              echo "unexpected PAC/SCS instruction in selhide_write_access_impl" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selhide-${{ inputs.kmi }}
+          path: |
+            out/*.ko
+            out/*.txt
+            out/*.log
+            out/*.exit
+          if-no-files-found: error

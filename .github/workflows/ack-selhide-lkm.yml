@@ -1,0 +1,223 @@
+name: Build selhide LKM (ACK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kmi:
+        description: Android GKI KMI target
+        required: true
+        default: android12-5.4
+        type: string
+      ack_url:
+        description: Kernel source archive URL
+        required: true
+        default: https://android.googlesource.com/kernel/common/+archive/refs/tags/android12-5.4.147_r00.tar.gz
+        type: string
+      ack_dir_name:
+        description: Local extracted ACK tree name
+        required: true
+        default: ack-android12-5.4.147
+        type: string
+      config_path:
+        description: Checked-in config path
+        required: true
+        default: configs/renoir-5.4.147-qgki-ga2bfd24da692.config
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: true
+        default: selhide-popsicle
+        type: string
+      out_name:
+        description: Output module filename
+        required: true
+        default: selhide-renoir-android12-5.4.147-qgki.ko
+        type: string
+      expected_vermagic:
+        description: Expected vermagic prefix to assert
+        required: true
+        default: '^vermagic=5\\.4\\.147-qgki-ga2bfd24da692 '
+        type: string
+      artifact_name:
+        description: Artifact name
+        required: true
+        default: selhide-renoir-android12-5.4.147-qgki
+        type: string
+      arch:
+        description: Kernel ARCH
+        required: true
+        default: arm64
+        type: string
+      llvm:
+        description: LLVM make value, empty to omit LLVM=
+        required: true
+        default: "1"
+        type: string
+  workflow_call:
+    inputs:
+      kmi:
+        description: Android GKI KMI target
+        required: true
+        type: string
+      ack_url:
+        description: Kernel source archive URL
+        required: true
+        type: string
+      ack_dir_name:
+        description: Local extracted ACK tree name
+        required: false
+        default: ack-android12-5.4.147
+        type: string
+      config_path:
+        description: Checked-in config path
+        required: true
+        type: string
+      source_dir:
+        description: selhide source directory
+        required: false
+        default: selhide-popsicle
+        type: string
+      out_name:
+        description: Output module filename
+        required: false
+        default: selhide-renoir-android12-5.4.147-qgki.ko
+        type: string
+      expected_vermagic:
+        description: Expected vermagic prefix to assert
+        required: false
+        default: '^vermagic=5\\.4\\.147-qgki-ga2bfd24da692 '
+        type: string
+      artifact_name:
+        description: Artifact name
+        required: false
+        default: ''
+        type: string
+      arch:
+        description: Kernel ARCH
+        required: false
+        default: arm64
+        type: string
+      llvm:
+        description: LLVM make value, empty to omit LLVM=
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ack-build:
+    name: Build ${{ inputs.kmi }} from ACK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ACK_URL: ${{ inputs.ack_url }}
+      ACK_DIR: ${{ github.workspace }}/${{ inputs.ack_dir_name }}
+      SOURCE_DIR: ${{ inputs.source_dir }}
+      CONFIG_PATH: ${{ inputs.config_path }}
+      OUT_NAME: ${{ inputs.out_name }}
+      KMI: ${{ inputs.kmi }}
+      EXPECTED_VERMAGIC: ${{ inputs.expected_vermagic }}
+      ARCH: ${{ inputs.arch }}
+      LLVM: ${{ inputs.llvm }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kernel build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            ca-certificates \
+            clang \
+            flex \
+            libelf-dev \
+            libssl-dev \
+            lld \
+            llvm \
+            make
+
+      - name: Prepare ACK/kernel tree
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$ACK_DIR" out
+          curl -L --fail --retry 5 --retry-delay 10 \
+            "$ACK_URL" \
+            -o out/kernel-common.tar.gz
+          tar -xzf out/kernel-common.tar.gz -C "$ACK_DIR"
+          if [ ! -f "$ACK_DIR/Makefile" ]; then
+            nested="$(find "$ACK_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+            if [ -z "$nested" ] || [ ! -f "$nested/Makefile" ]; then
+              echo "could not locate extracted ACK Makefile" >&2
+              find "$ACK_DIR" -maxdepth 2 -type f -name Makefile -print >&2
+              exit 1
+            fi
+            shopt -s dotglob
+            mv "$nested"/* "$ACK_DIR"/
+            rmdir "$nested"
+          fi
+          cp "$CONFIG_PATH" "$ACK_DIR/.config"
+          make_args=(ARCH="$ARCH")
+          if [ -n "$LLVM" ]; then
+            make_args+=(LLVM="$LLVM")
+          fi
+          make -C "$ACK_DIR" "${make_args[@]}" olddefconfig prepare modules_prepare \
+            2>&1 | tee out/ack-kernel-prepare.log
+
+      - name: Build module
+        shell: bash
+        run: |
+          set -uo pipefail
+          chmod +x ./build_selhide_ddk.sh
+          mkdir -p out
+          set +e
+          (
+            set -euxo pipefail
+            SELHIDE_SRC="$PWD/$SOURCE_DIR" \
+            OUTDIR="$PWD/out" \
+            OUT_NAME="$OUT_NAME" \
+            KMI="$KMI" \
+            DDK_TARGET="$KMI" \
+            KDIR="$ACK_DIR" \
+            FORCE_MAKE=1 \
+            ARCH="$ARCH" \
+            LLVM="$LLVM" \
+            LOADER=/nonexistent \
+            ./build_selhide_ddk.sh
+          ) 2>&1 | tee out/ack-build.log
+          build_rc="${PIPESTATUS[0]}"
+          set -e
+          printf '%s\n' "$build_rc" > out/ack-build.exit
+          exit "$build_rc"
+
+      - name: Inspect output
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ko="out/$OUT_NAME"
+          ls -la out
+          file "$ko" || true
+          modinfo "$ko" || true
+          strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' | tee out/ack-modinfo-strings.txt
+          if [ -n "$EXPECTED_VERMAGIC" ]; then
+            grep -q "$EXPECTED_VERMAGIC" out/ack-modinfo-strings.txt
+          fi
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name || format('selhide-{0}-ack', inputs.kmi) }}
+          path: |
+            out/*.ko
+            out/*.txt
+            out/*.log
+            out/*.exit
+          if-no-files-found: error
