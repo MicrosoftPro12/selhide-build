@@ -116,7 +116,7 @@ jobs:
           if-no-files-found: error
 
   renoir-ack-build:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.kmi == 'android12-5.4' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.kmi == 'android12-5.4') || (github.event_name == 'push' && github.ref == 'refs/heads/experiment' && contains(github.event.head_commit.message, '[renoir-ack]')) }}
     name: Build renoir android12-5.4
     runs-on: ubuntu-latest
     timeout-minutes: 90

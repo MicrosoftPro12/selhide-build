@@ -133,6 +133,10 @@ not use a `ddk-min` image; it downloads Android common
 `android12-5.4.147_r00`, prepares it with the checked-in renoir config, then
 uses the local Kbuild fallback intentionally.
 
+For one-off CI validation without GitHub API dispatch, push to `experiment`
+with `[renoir-ack]` in the head commit message. That runs the renoir ACK job in
+addition to the normal popsicle push build.
+
 The artifact contains the `.ko` and a short disassembly excerpt for
 `selhide_write_access_impl`; the workflow fails if that callback regains an
 automatic PAC/SCS return sequence.
