@@ -1,6 +1,11 @@
 name: Build selhide LKM (DDK)
 
 on:
+  push:
+    branches:
+      - experiment
+      - experimental
+      - experimental/**
   workflow_dispatch:
     inputs:
       kmi:
@@ -74,10 +79,11 @@ permissions:
 
 jobs:
   ddk-build:
-    name: Build ${{ inputs.kmi }}
+    if: ${{ github.event_name != 'push' || contains(github.event.head_commit.message, '[ddk-5.10]') }}
+    name: Build ${{ inputs.kmi || 'android12-5.10' }}
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-${{ inputs.ddk_release }}
+      image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi || 'android12-5.10' }}-${{ inputs.ddk_release || '20260313' }}
       options: --privileged
 
     steps:
@@ -87,10 +93,10 @@ jobs:
       - name: Build module
         shell: bash
         env:
-          KMI: ${{ inputs.kmi }}
-          DDK_TARGET: ${{ inputs.kmi }}
-          SOURCE_DIR: ${{ inputs.source_dir }}
-          REQUIRE_DDK: ${{ inputs.require_ddk }}
+          KMI: ${{ inputs.kmi || 'android12-5.10' }}
+          DDK_TARGET: ${{ inputs.kmi || 'android12-5.10' }}
+          SOURCE_DIR: ${{ inputs.source_dir || 'selhide-popsicle' }}
+          REQUIRE_DDK: ${{ inputs.require_ddk || '0' }}
         run: |
           set -uo pipefail
           chmod +x ./build_selhide_ddk.sh
@@ -111,7 +117,7 @@ jobs:
           exit "$build_rc"
 
       - name: Inspect and verify output
-        if: ${{ inputs.verify_disassembly == '1' }}
+        if: ${{ inputs.verify_disassembly != '0' }}
         shell: bash
         run: |
           set -euxo pipefail
@@ -139,7 +145,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: selhide-${{ inputs.kmi }}
+          name: selhide-${{ inputs.kmi || 'android12-5.10' }}
           path: |
             out/*.ko
             out/*.txt
