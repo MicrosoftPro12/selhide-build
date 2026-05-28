@@ -59,10 +59,15 @@ static void selhide_flush_icache(unsigned long start, unsigned long end)
 	caches_clean_inval_pou(start, end);
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
 static void selhide_flush_dcache(void *addr, size_t len)
 {
 	__clean_dcache_area_pou(addr, len);
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+static void selhide_flush_dcache(void *addr, size_t len)
+{
+	caches_clean_inval_pou((unsigned long)addr, (unsigned long)addr + len);
 }
 #else
 static void selhide_flush_dcache(void *addr, size_t len)

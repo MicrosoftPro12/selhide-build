@@ -117,7 +117,7 @@ jobs:
           exit "$build_rc"
 
       - name: Inspect and verify output
-        if: ${{ inputs.verify_disassembly != '0' }}
+        if: ${{ github.event_name == 'push' || inputs.verify_disassembly != '0' }}
         shell: bash
         run: |
           set -euxo pipefail
