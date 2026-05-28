@@ -117,6 +117,27 @@ print_module_info() {
     echo "running_release=$(uname -r)"
 }
 
+guard_vermagic_before_load() {
+    ko_release="$(strings "$KO" 2>/dev/null | sed -n 's/^vermagic=//p' | head -n 1 | awk '{print $1}')"
+    running_release="$(uname -r)"
+
+    echo "ko_release=${ko_release:-missing}"
+    echo "running_release=$running_release"
+    if [ -n "$ko_release" ] && [ "$ko_release" = "$running_release" ]; then
+        echo "vermagic_guard=exact-release-match"
+        return 0
+    fi
+
+    if [ "${ALLOW_UNSAFE_MODULE_LOAD:-}" = "YES" ]; then
+        echo "vermagic_guard=override"
+        return 0
+    fi
+
+    echo "ERROR: refusing to load vermagic-mismatched module"
+    echo "       set ALLOW_UNSAFE_MODULE_LOAD=YES only for deliberate crash testing"
+    return 4
+}
+
 write_selinux_context() {
     label="$1"
     ctx="$2"
@@ -269,6 +290,9 @@ main() {
         echo "skip load: DO_LOAD=$DO_LOAD"
         return 0
     fi
+
+    log_section vermagic_guard
+    guard_vermagic_before_load || return $?
 
     if is_loaded; then
         log_section stale_module_cleanup
