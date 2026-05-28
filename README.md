@@ -75,6 +75,10 @@ The KernelSU-style LKM flow is split into small reusable workflows:
   This keeps test artifacts away from module-BTF parser failures such as
   `BPF: Invalid name_offset`; set `STRIP_BTF=0` only when intentionally
   comparing with KernelSU-style unstripped artifacts.
+- `selhide-popsicle` now uses normal `module_init/module_exit` by default so
+  CFI-enabled DDK builds emit `__cfi_jt_init_module` and
+  `__cfi_jt_cleanup_module`, matching KernelSU's LKM entry shape. Set
+  `SELHIDE_ASM_INIT=1` only to reproduce the older hand-written init wrapper.
 - On-device testing is intended to use the one-click Android shell wrappers:
   `run_popsicle_local_smoke.sh` for one conservative load/probe/unload cycle,
   or `run_popsicle_local_app_stress.sh` for three DirtySepolicy APK rounds.

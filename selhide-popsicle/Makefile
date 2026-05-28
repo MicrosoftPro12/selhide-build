@@ -10,7 +10,12 @@ SELHIDE_KCFI_FLAGS += $(if $(SELHIDE_WRITE_CONTEXT_KCFI_WORD),-DSELHIDE_WRITE_CO
 SELHIDE_KCFI_FLAGS += $(if $(SELHIDE_SETPROCATTR_KCFI_WORD),-DSELHIDE_SETPROCATTR_KCFI_WORD=$(SELHIDE_SETPROCATTR_KCFI_WORD),)
 
 obj-m := selhide.o
-selhide-y := selhide_entry.o selhide_hook_entry.o selhide_main.o selhide_patch_memory.o
+SELHIDE_ASM_INIT ?= 0
+selhide-y := selhide_hook_entry.o selhide_main.o selhide_patch_memory.o
+ifeq ($(SELHIDE_ASM_INIT),1)
+selhide-y += selhide_entry.o
+ccflags-y += -DSELHIDE_ASM_INIT=1
+endif
 
 ccflags-y += -I$(SELINUX_HDR_ROOT)/security/selinux
 ccflags-y += -I$(SELINUX_HDR_ROOT)/security/selinux/include

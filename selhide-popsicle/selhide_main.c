@@ -1239,6 +1239,11 @@ void __exit selhide_real_exit(void)
 	destroy_backup_policy();
 }
 
+#ifndef SELHIDE_ASM_INIT
+module_init(selhide_real_init);
+module_exit(selhide_real_exit);
+#endif
+
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("selhide");
 MODULE_DESCRIPTION("selhide phase0 probe + guarded SEL_ACCESS/SEL_CONTEXT/setprocattr hooks");

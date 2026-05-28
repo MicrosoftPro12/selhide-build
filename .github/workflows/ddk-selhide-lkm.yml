@@ -142,6 +142,13 @@ jobs:
             file "$ko" || true
             modinfo "$ko" || true
             strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' || true
+            readelf -sW "$ko" > "${ko}.symbols.txt"
+            grep -E ' init_module$| cleanup_module$|__cfi_jt_init_module|__cfi_jt_cleanup_module|__cfi_check' \
+              "${ko}.symbols.txt" || true
+            if grep -q ' __cfi_check$' "${ko}.symbols.txt"; then
+              grep -q ' __cfi_jt_init_module$' "${ko}.symbols.txt"
+              grep -q ' __cfi_jt_cleanup_module$' "${ko}.symbols.txt"
+            fi
             readelf -SW "$ko" | grep -E '(__versions|\.BTF)' || true
             if readelf -SW "$ko" | grep -qE '\.BTF(\.ext)?[[:space:]]'; then
               echo "unexpected BTF section left in $ko" >&2
