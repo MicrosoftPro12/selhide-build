@@ -23,6 +23,7 @@ LLVM="${LLVM:-1}"
 KMI="${KMI:-${DDK_TARGET:-android16-6.12}}"
 OUT_NAME="${OUT_NAME:-selhide-${KMI}.ko}"
 REQUIRE_DDK="${REQUIRE_DDK:-0}"
+STRIP_BTF="${STRIP_BTF:-1}"
 
 log() {
     printf '[build_selhide_ddk] %s\n' "$*"
@@ -96,6 +97,7 @@ print_env() {
     log "OUT_NAME=$OUT_NAME"
     log "KMI=$KMI"
     log "REQUIRE_DDK=$REQUIRE_DDK"
+    log "STRIP_BTF=$STRIP_BTF"
     log "DDK_TARGET=${DDK_TARGET:-}"
     log "KDIR=${KDIR:-}"
     log "PATH=$PATH"
@@ -113,6 +115,15 @@ copy_result() {
     cp "$build_dir/selhide.ko" "$dest"
     if command -v llvm-strip >/dev/null 2>&1; then
         llvm-strip -d "$dest" || true
+    fi
+    if [ "$STRIP_BTF" = "1" ]; then
+        objcopy_bin="$(command -v llvm-objcopy || command -v aarch64-linux-gnu-objcopy || command -v objcopy || true)"
+        if [ -n "$objcopy_bin" ]; then
+            "$objcopy_bin" --remove-section=.BTF --remove-section=.BTF.ext "$dest" || true
+            log "removed BTF sections from $dest"
+        else
+            log "WARN: objcopy not found; could not remove BTF sections"
+        fi
     fi
     log "wrote $dest"
     if command -v modinfo >/dev/null 2>&1; then

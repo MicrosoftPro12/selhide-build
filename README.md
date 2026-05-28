@@ -71,6 +71,10 @@ The KernelSU-style LKM flow is split into small reusable workflows:
   kernel tree when present, but the fallback avoids missing
   `security/selinux/include/security.h` in slim DDK images.
 - The produced `.ko` still needs the existing staged loader/test path on device.
+- `build_selhide_ddk.sh` removes `.BTF/.BTF.ext` by default (`STRIP_BTF=1`).
+  This keeps test artifacts away from module-BTF parser failures such as
+  `BPF: Invalid name_offset`; set `STRIP_BTF=0` only when intentionally
+  comparing with KernelSU-style unstripped artifacts.
 - On-device testing is intended to use the one-click Android shell wrappers:
   `run_popsicle_local_smoke.sh` for one conservative load/probe/unload cycle,
   or `run_popsicle_local_app_stress.sh` for three DirtySepolicy APK rounds.

@@ -37,6 +37,14 @@ on:
         options:
           - "1"
           - "0"
+      strip_btf:
+        description: Remove .BTF/.BTF.ext from produced modules
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "0"
   workflow_call:
     inputs:
       ddk_release:
@@ -61,6 +69,11 @@ on:
         type: string
       verify_disassembly:
         description: Verify selected callback disassembly
+        required: false
+        default: "1"
+        type: string
+      strip_btf:
+        description: Remove .BTF/.BTF.ext from produced modules
         required: false
         default: "1"
         type: string
@@ -89,6 +102,7 @@ jobs:
       source_dir: ${{ inputs.source_dir || 'selhide-popsicle' }}
       require_ddk: ${{ inputs.require_ddk || '0' }}
       verify_disassembly: ${{ inputs.verify_disassembly || '1' }}
+      strip_btf: ${{ inputs.strip_btf || '1' }}
 
   ack-lkm:
     name: ACK ${{ matrix.name }}

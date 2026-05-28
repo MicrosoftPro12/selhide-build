@@ -33,6 +33,14 @@ on:
         options:
           - "0"
           - "1"
+      strip_btf:
+        description: Remove .BTF/.BTF.ext from the produced module
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "0"
   push:
     branches:
       - main
@@ -64,6 +72,7 @@ jobs:
           DDK_TARGET: ${{ github.event.inputs.kmi || 'android16-6.12' }}
           SOURCE_DIR: ${{ github.event.inputs.source_dir || 'selhide-popsicle' }}
           REQUIRE_DDK: ${{ github.event.inputs.require_ddk || '0' }}
+          STRIP_BTF: ${{ github.event.inputs.strip_btf || '1' }}
         run: |
           set -uo pipefail
           chmod +x ./build_selhide_ddk.sh
@@ -75,6 +84,7 @@ jobs:
             OUTDIR="$PWD/out" \
             OUT_NAME="selhide-${KMI}.ko" \
             REQUIRE_DDK="$REQUIRE_DDK" \
+            STRIP_BTF="$STRIP_BTF" \
             LOADER=/nonexistent \
             ./build_selhide_ddk.sh
           ) 2>&1 | tee out/build.log
@@ -93,6 +103,11 @@ jobs:
             file "$ko" || true
             modinfo "$ko" || true
             strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' || true
+            readelf -SW "$ko" | grep -E '(__versions|\.BTF)' || true
+            if readelf -SW "$ko" | grep -qE '\.BTF(\.ext)?[[:space:]]'; then
+              echo "unexpected BTF section left in $ko" >&2
+              exit 1
+            fi
             OBJDUMP="$(command -v llvm-objdump || command -v aarch64-linux-gnu-objdump || command -v objdump)"
             "$OBJDUMP" -dr "$ko" > "${ko}.objdump.txt"
             sed -n '/<selhide_write_access_impl>:/,/^$/p' "${ko}.objdump.txt" \
@@ -171,6 +186,7 @@ jobs:
             KDIR="$ACK_DIR" \
             FORCE_MAKE=1 \
             LLVM=1 \
+            STRIP_BTF="${STRIP_BTF:-1}" \
             LOADER=/nonexistent \
             ./build_selhide_ddk.sh
           ) 2>&1 | tee out/renoir-build.log
@@ -188,6 +204,11 @@ jobs:
           file "$ko" || true
           modinfo "$ko" || true
           strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' | tee out/renoir-modinfo-strings.txt
+          readelf -SW "$ko" | grep -E '(__versions|\.BTF)' || true
+          if readelf -SW "$ko" | grep -qE '\.BTF(\.ext)?[[:space:]]'; then
+            echo "unexpected BTF section left in $ko" >&2
+            exit 1
+          fi
           grep -q '^vermagic=5\.4\.147-qgki-ga2bfd24da692 ' out/renoir-modinfo-strings.txt
 
       - name: Upload renoir artifact
