@@ -27,6 +27,8 @@ AFLAGS_selhide_hook_entry.o += $(SELHIDE_KCFI_FLAGS)
 # of selhide_patch_text_cb_impl on stopper threads.
 CFLAGS_REMOVE_selhide_patch_memory.o += -mbranch-protection=pac-ret
 CFLAGS_REMOVE_selhide_patch_memory.o += -fsanitize=shadow-call-stack
+CFLAGS_selhide_patch_memory.o += -mbranch-protection=none
+CFLAGS_selhide_patch_memory.o += -fno-sanitize=shadow-call-stack
 
 # The SEL_ACCESS/SEL_CONTEXT/setprocattr hook callbacks are entered from
 # kernel-owned callback tables through our hand-written KCFI wrappers. On
@@ -35,6 +37,8 @@ CFLAGS_REMOVE_selhide_patch_memory.o += -fsanitize=shadow-call-stack
 # only the KCFI landing contract.
 CFLAGS_REMOVE_selhide_main.o += -mbranch-protection=pac-ret
 CFLAGS_REMOVE_selhide_main.o += -fsanitize=shadow-call-stack
+CFLAGS_selhide_main.o += -mbranch-protection=none
+CFLAGS_selhide_main.o += -fno-sanitize=shadow-call-stack
 
 modules:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) LLVM=$(LLVM) ARCH=$(ARCH) modules
