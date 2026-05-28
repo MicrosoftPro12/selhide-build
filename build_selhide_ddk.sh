@@ -119,8 +119,15 @@ copy_result() {
     if [ "$STRIP_BTF" = "1" ]; then
         objcopy_bin="$(command -v llvm-objcopy || command -v aarch64-linux-gnu-objcopy || command -v objcopy || true)"
         if [ -n "$objcopy_bin" ]; then
-            "$objcopy_bin" --remove-section=.BTF --remove-section=.BTF.ext "$dest" || true
-            log "removed BTF sections from $dest"
+            btf_sections="$(readelf -SW "$dest" 2>/dev/null | awk '$2 ~ /^\.BTF/ {print $2}')"
+            if [ -n "$btf_sections" ]; then
+                for section in $btf_sections; do
+                    "$objcopy_bin" --remove-section="$section" "$dest" || true
+                done
+                log "removed BTF sections from $dest: $(printf '%s' "$btf_sections" | tr '\n' ' ')"
+            else
+                log "no BTF sections found in $dest"
+            fi
         else
             log "WARN: objcopy not found; could not remove BTF sections"
         fi

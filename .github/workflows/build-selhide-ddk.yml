@@ -111,7 +111,7 @@ jobs:
               grep -q ' __cfi_jt_cleanup_module$' "${ko}.symbols.txt"
             fi
             readelf -SW "$ko" | grep -E '(__versions|\.BTF)' || true
-            if readelf -SW "$ko" | grep -qE '\.BTF(\.ext)?[[:space:]]'; then
+            if readelf -SW "$ko" | grep -qE '\.BTF'; then
               echo "unexpected BTF section left in $ko" >&2
               exit 1
             fi
@@ -219,7 +219,7 @@ jobs:
             grep -q ' __cfi_jt_cleanup_module$' "out/$OUT_NAME.symbols.txt"
           fi
           readelf -SW "$ko" | grep -E '(__versions|\.BTF)' || true
-          if readelf -SW "$ko" | grep -qE '\.BTF(\.ext)?[[:space:]]'; then
+          if readelf -SW "$ko" | grep -qE '\.BTF'; then
             echo "unexpected BTF section left in $ko" >&2
             exit 1
           fi
