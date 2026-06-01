@@ -231,8 +231,18 @@ int selhide_patch_text(void *dst, const void *src, size_t len, int flags)
 		.ret = 0,
 	};
 
+#if defined(CONFIG_CFI_CLANG)
+	/*
+	 * Legacy Clang CFI kernels validate stop_machine callbacks through the
+	 * module's compiler-generated __cfi_check table. A hand-written ASM
+	 * callback has the right ABI, but no matching CFI metadata, so the
+	 * stopper thread panics before entering it.
+	 */
+	return stop_machine(selhide_patch_text_cb_impl, &info, cpu_online_mask);
+#else
 	return stop_machine((int (*)(void *))(unsigned long)selhide_patch_text_cb_entry,
 			    &info, cpu_online_mask);
+#endif
 }
 
 #endif
