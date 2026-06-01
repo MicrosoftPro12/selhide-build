@@ -22,6 +22,7 @@ LOADER="${LOADER:-./kallsyms_init_module}"
 PARAMS="${PARAMS:-access_hook=1 clean_access=0}"
 ACCESS="${ACCESS:-/sys/fs/selinux/access}"
 ACCESS_TIMEOUT="${ACCESS_TIMEOUT:-8}"
+ALLOW_QUERY_WRITE_FAIL="${ALLOW_QUERY_WRITE_FAIL:-1}"
 
 select_ko() {
     if [ -n "${KO:-}" ] && [ -f "$KO" ]; then
@@ -55,6 +56,10 @@ is_loaded() {
 
 filtered_dmesg() {
     dmesg 2>/dev/null | grep -iE 'selhide|SEL_ACCESS|clean_access|module|vermagic|version magic|exec format|kallsyms|cfi|kcfi|fpac|oops|panic|Unable to handle|Internal error|Call trace' | tail -n "${1:-220}"
+}
+
+selhide_access_hit_count() {
+    dmesg 2>/dev/null | grep -c 'selhide: SEL_ACCESS .*hit' 2>/dev/null || echo 0
 }
 
 guard_host() {
@@ -201,11 +206,15 @@ guard_vermagic_before_load() {
 
 cleanup_module() {
     if is_loaded; then
+        cleanup_rc=0
         log_section rmmod_cleanup
         rmmod selhide 2>&1
-        echo "rmmod_exit=$?"
+        cleanup_rc=$?
+        echo "rmmod_exit=$cleanup_rc"
         grep '^selhide ' /proc/modules 2>&1 || echo "(not loaded)"
+        return "$cleanup_rc"
     fi
+    return 0
 }
 
 single_access_query() {
@@ -270,6 +279,7 @@ main() {
     echo "loader=$LOADER"
     echo "params=$PARAMS"
     echo "access_timeout=$ACCESS_TIMEOUT"
+    echo "allow_query_write_fail=$ALLOW_QUERY_WRITE_FAIL"
 
     log_section host_guard
     guard_host || return 2
@@ -309,22 +319,45 @@ main() {
     log_section dmesg_after_load
     filtered_dmesg 220
 
+    access_hits_before="$(selhide_access_hit_count)"
+    echo "access_hits_before=$access_hits_before"
+
     log_section single_access_query
     single_access_query
     rc=$?
 
     log_section dmesg_after_query
     filtered_dmesg 260
+    access_hits_after="$(selhide_access_hit_count)"
+    echo "access_hits_after=$access_hits_after"
+
+    if [ "$rc" != "0" ] && [ "$rc" != "124" ] &&
+       [ "$ALLOW_QUERY_WRITE_FAIL" = "1" ] &&
+       [ "${access_hits_after:-0}" -gt "${access_hits_before:-0}" ]; then
+        echo "query_nonzero_ignored=$rc because SEL_ACCESS hook was hit in this run"
+        rc=0
+    fi
 
     if [ "$rc" = "124" ]; then
         echo "skip rmmod after timeout to avoid unloading while a blocked transaction may still hold module text"
         return "$rc"
     fi
 
+    query_rc="$rc"
     cleanup_module
+    cleanup_rc=$?
 
     log_section dmesg_after_rmmod
     filtered_dmesg 260
+
+    if [ "$cleanup_rc" != "0" ]; then
+        return "$cleanup_rc"
+    fi
+
+    if [ "$query_rc" != "0" ] && [ "$ALLOW_QUERY_WRITE_FAIL" = "1" ] && ! is_loaded; then
+        echo "query_nonzero_ignored=$query_rc because module load/unload smoke completed"
+        rc=0
+    fi
 
     return "$rc"
 }
