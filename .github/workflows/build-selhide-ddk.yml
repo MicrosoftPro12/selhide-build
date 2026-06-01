@@ -117,6 +117,26 @@ jobs:
             fi
             OBJDUMP="$(command -v llvm-objdump || command -v aarch64-linux-gnu-objdump || command -v objdump)"
             "$OBJDUMP" -dr "$ko" > "${ko}.objdump.txt"
+            check_bti_entry() {
+              local symbol="$1"
+              local first_insn="${ko}.${symbol}.first-insn.txt"
+              if ! grep -q "<${symbol}>:" "${ko}.objdump.txt"; then
+                echo "missing expected indirect entry symbol: ${symbol}" >&2
+                exit 1
+              fi
+              awk -v sym="<${symbol}>:" '
+                index($0, sym) { found = 1; next }
+                found && /^[[:space:]]*[[:xdigit:]]+:/ { print; exit }
+              ' "${ko}.objdump.txt" > "$first_insn"
+              cat "$first_insn"
+              if ! grep -Eq 'hint[[:space:]]+#34|d503245f' "$first_insn"; then
+                echo "missing BTI c landing pad at ${symbol}" >&2
+                exit 1
+              fi
+            }
+            check_bti_entry 'selhide_real_init.cfi_jt'
+            check_bti_entry 'selhide_write_access_entry'
+            check_bti_entry 'selhide_patch_text_cb_entry'
             sed -n '/<selhide_write_access_impl>:/,/^$/p' "${ko}.objdump.txt" \
               > "${ko}.selhide_write_access_impl.txt"
             if grep -E 'paciasp|autiasp|hint[[:space:]]+#(25|29)|\\bx18\\b' "${ko}.selhide_write_access_impl.txt"; then

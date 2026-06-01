@@ -18,11 +18,31 @@ esac
 cd "$SCRIPT_DIR" 2>/dev/null || true
 
 OUT="${OUT:-./test_selhide_single_access_$(date +%Y%m%d_%H%M%S).txt}"
-KO="${KO:-./selhide-renoir-5.4.147-qgki.ko}"
 LOADER="${LOADER:-./kallsyms_init_module}"
 PARAMS="${PARAMS:-access_hook=1 clean_access=0}"
 ACCESS="${ACCESS:-/sys/fs/selinux/access}"
 ACCESS_TIMEOUT="${ACCESS_TIMEOUT:-8}"
+
+select_ko() {
+    if [ -n "${KO:-}" ] && [ -f "$KO" ]; then
+        echo "$KO"
+        return 0
+    fi
+    for candidate in \
+        ./selhide-android13-5.15.ko \
+        ./selhide-android16-6.12.ko \
+        ./selhide-renoir-5.4.147-qgki.ko \
+        ./selhide-*.ko \
+        ./*.ko
+    do
+        [ -f "$candidate" ] || continue
+        echo "$candidate"
+        return 0
+    done
+    return 1
+}
+
+KO="$(select_ko 2>/dev/null || true)"
 
 log_section() {
     echo
@@ -61,14 +81,111 @@ print_module_info() {
     echo "running_release=$(uname -r)"
 }
 
+extract_vermagic() {
+    strings "$1" 2>/dev/null | sed -n 's/^vermagic=//p' | head -n 1
+}
+
+vermagic_release() {
+    v="$1"
+    echo "${v%% *}"
+}
+
+vermagic_suffix() {
+    v="$1"
+    case "$v" in
+        *" "*) echo "${v#* }" ;;
+        *) echo "" ;;
+    esac
+}
+
+find_reference_vermagic() {
+    if [ -n "${SELHIDE_REFERENCE_VERMAGIC:-}" ]; then
+        echo "env:SELHIDE_REFERENCE_VERMAGIC:$SELHIDE_REFERENCE_VERMAGIC"
+        return 0
+    fi
+    if [ -n "${SELHIDE_REFERENCE_VERMAGIC_FILE:-}" ] &&
+       [ -f "$SELHIDE_REFERENCE_VERMAGIC_FILE" ]; then
+        ref="$(sed -n '1{s/[[:cntrl:]]*$//;p;}' "$SELHIDE_REFERENCE_VERMAGIC_FILE" 2>/dev/null)"
+        [ -n "$ref" ] && echo "file:$SELHIDE_REFERENCE_VERMAGIC_FILE:$ref" && return 0
+    fi
+    for rf in ./reference_vermagic.txt ../reference_vermagic.txt; do
+        [ -f "$rf" ] || continue
+        ref="$(sed -n '1{s/[[:cntrl:]]*$//;p;}' "$rf" 2>/dev/null)"
+        [ -n "$ref" ] || continue
+        echo "file:$rf:$ref"
+        return 0
+    done
+
+    for d in \
+        /vendor/lib/modules \
+        /vendor_dlkm/lib/modules \
+        /odm/lib/modules \
+        /odm_dlkm/lib/modules \
+        /system/lib/modules \
+        /system_dlkm/lib/modules \
+        /lib/modules
+    do
+        [ -d "$d" ] || continue
+        for p in "$d"/*.ko "$d"/*/*.ko "$d"/*/*/*.ko; do
+            [ -f "$p" ] || continue
+            ref="$(extract_vermagic "$p")"
+            [ -n "$ref" ] || continue
+            echo "$p:$ref"
+            return 0
+        done
+    done
+    return 1
+}
+
 guard_vermagic_before_load() {
-    ko_release="$(strings "$KO" 2>/dev/null | sed -n 's/^vermagic=//p' | head -n 1 | awk '{print $1}')"
+    ko_vermagic="$(extract_vermagic "$KO")"
+    ko_release="$(vermagic_release "$ko_vermagic")"
+    ko_suffix="$(vermagic_suffix "$ko_vermagic")"
     running_release="$(uname -r)"
+    ref_line="$(find_reference_vermagic 2>/dev/null || true)"
+    case "$ref_line" in
+        env:SELHIDE_REFERENCE_VERMAGIC:*)
+            ref_path="env:SELHIDE_REFERENCE_VERMAGIC"
+            ref_vermagic="${ref_line#env:SELHIDE_REFERENCE_VERMAGIC:}"
+            ;;
+        file:*:*)
+            ref_path="${ref_line#file:}"
+            ref_path="${ref_path%%:*}"
+            ref_vermagic="${ref_line#file:$ref_path:}"
+            ref_path="file:$ref_path"
+            ;;
+        *)
+            ref_path="${ref_line%%:*}"
+            ref_vermagic="${ref_line#*:}"
+            ;;
+    esac
+    if [ -z "$ref_line" ] || [ "$ref_line" = "$ref_vermagic" ]; then
+        ref_path=""
+        ref_vermagic=""
+    fi
+    ref_suffix="$(vermagic_suffix "$ref_vermagic")"
+    ref_release="$(vermagic_release "$ref_vermagic")"
+    ref_release_match=0
+    [ -n "$ref_release" ] && [ "$ref_release" = "$running_release" ] && ref_release_match=1
 
     echo "ko_release=${ko_release:-missing}"
     echo "running_release=$running_release"
-    if [ -n "$ko_release" ] && [ "$ko_release" = "$running_release" ]; then
+    echo "ko_vermagic=${ko_vermagic:-missing}"
+    echo "ko_vermagic_suffix=${ko_suffix:-missing}"
+    echo "reference_module=${ref_path:-missing}"
+    echo "reference_vermagic=${ref_vermagic:-missing}"
+    echo "reference_vermagic_suffix=${ref_suffix:-missing}"
+    echo "reference_release_match=$ref_release_match"
+
+    if [ -n "$ko_release" ] && [ "$ko_release" = "$running_release" ] &&
+       { [ -z "$ref_suffix" ] || [ "$ko_suffix" = "$ref_suffix" ] || [ "$ref_release_match" = "0" ]; }; then
         echo "vermagic_guard=exact-release-match"
+        return 0
+    fi
+
+    if [ -n "$ko_suffix" ] && [ -n "$ref_suffix" ] && [ "$ko_suffix" = "$ref_suffix" ] &&
+       { [ "$ref_release_match" = "1" ] || [ "${ALLOW_REFERENCE_RELEASE_MISMATCH:-}" = "YES" ]; }; then
+        echo "vermagic_guard=kmi-suffix-candidate-loader-enforced"
         return 0
     fi
 
@@ -77,9 +194,9 @@ guard_vermagic_before_load() {
         return 0
     fi
 
-    echo "ERROR: refusing to load vermagic-mismatched module"
-    echo "       set ALLOW_UNSAFE_MODULE_LOAD=YES only for deliberate crash testing"
-    return 4
+    echo "vermagic_guard=loader-enforced-mismatch"
+    echo "INFO: final vermagic/modversions decision is enforced by kallsyms_init_module"
+    return 0
 }
 
 cleanup_module() {

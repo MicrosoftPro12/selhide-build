@@ -98,6 +98,7 @@ print_env() {
     log "KMI=$KMI"
     log "REQUIRE_DDK=$REQUIRE_DDK"
     log "STRIP_BTF=$STRIP_BTF"
+    log "SELHIDE_ASM_INIT=${SELHIDE_ASM_INIT:-<Makefile default>}"
     log "DDK_TARGET=${DDK_TARGET:-}"
     log "KDIR=${KDIR:-}"
     log "PATH=$PATH"

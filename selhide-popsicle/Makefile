@@ -27,22 +27,24 @@ asflags-y += $(SELHIDE_KCFI_FLAGS)
 AFLAGS_selhide_hook_entry.o += $(SELHIDE_KCFI_FLAGS)
 
 # The stop_machine callback reaches selhide_patch_text_cb_entry first, which
-# supplies the runtime-required KCFI type ID. Keep the C implementation plain:
-# this target has repeatedly FPACed in the compiler-generated PAC/SCS epilogue
-# of selhide_patch_text_cb_impl on stopper threads.
+# supplies the runtime-required KCFI type ID. Keep the C implementation free of
+# PAC/SCS: this target has repeatedly FPACed in the compiler-generated PAC/SCS
+# epilogue of selhide_patch_text_cb_impl on stopper threads. Preserve BTI only,
+# because arm64 BTI kernels require indirect-call landing pads.
 CFLAGS_REMOVE_selhide_patch_memory.o += -mbranch-protection=pac-ret
 CFLAGS_REMOVE_selhide_patch_memory.o += -fsanitize=shadow-call-stack
-CFLAGS_selhide_patch_memory.o += -mbranch-protection=none
+CFLAGS_selhide_patch_memory.o += -mbranch-protection=bti
 CFLAGS_selhide_patch_memory.o += -fno-sanitize=shadow-call-stack
 
 # The SEL_ACCESS/SEL_CONTEXT/setprocattr hook callbacks are entered from
 # kernel-owned callback tables through our hand-written KCFI wrappers. On
 # popsicle/6.12, SEL_ACCESS has also FPACed in the compiler-generated PAC/SCS
-# epilogue, so keep the main hook implementation plain and let the wrappers own
-# only the KCFI landing contract.
+# epilogue, so keep PAC/SCS off and let the wrappers own the KCFI landing
+# contract. Keep BTI so compiler-generated CFI jump tables remain valid indirect
+# branch targets on BTI-enabled kernels.
 CFLAGS_REMOVE_selhide_main.o += -mbranch-protection=pac-ret
 CFLAGS_REMOVE_selhide_main.o += -fsanitize=shadow-call-stack
-CFLAGS_selhide_main.o += -mbranch-protection=none
+CFLAGS_selhide_main.o += -mbranch-protection=bti
 CFLAGS_selhide_main.o += -fno-sanitize=shadow-call-stack
 
 modules:

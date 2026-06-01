@@ -71,14 +71,32 @@ The KernelSU-style LKM flow is split into small reusable workflows:
   kernel tree when present, but the fallback avoids missing
   `security/selinux/include/security.h` in slim DDK images.
 - The produced `.ko` still needs the existing staged loader/test path on device.
+- `kallsyms_init_module.c` is the staged KernelSU-style loader used by the test
+  bundles. Its real-load guard now follows Android `same_magic()` behavior more
+  closely: exact release is accepted, and non-exact release is accepted only
+  when the module has modversions and its vermagic suffix matches a reference
+  module from the running device.
+- `check_selhide_vermagic_guard.sh` is safe to run first on Android host/root
+  shell. It never calls `init_module(2)`; it only reports exact/KMI-compatible
+  status through `kallsyms_init_module --check-vermagic`, then optionally runs
+  the dry-run symbol resolver.
+- If a device has no readable `/vendor/lib/modules` or similar reference `.ko`,
+  `SELHIDE_REFERENCE_VERMAGIC='...'` or a local `reference_vermagic.txt` can
+  provide a known device vermagic for the same suffix check. User-supplied
+  references must match the running `uname -r` unless
+  `ALLOW_REFERENCE_RELEASE_MISMATCH=YES` is set, and this is deliberately
+  narrower than `ALLOW_UNSAFE_MODULE_LOAD=YES`: modversions and suffix equality
+  are still required.
 - `build_selhide_ddk.sh` removes `.BTF/.BTF.ext` by default (`STRIP_BTF=1`).
   This keeps test artifacts away from module-BTF parser failures such as
   `BPF: Invalid name_offset`; set `STRIP_BTF=0` only when intentionally
   comparing with KernelSU-style unstripped artifacts.
-- `selhide-popsicle` now uses normal `module_init/module_exit` by default so
+- `selhide-popsicle` uses normal `module_init/module_exit` by default so
   CFI-enabled DDK builds emit `__cfi_jt_init_module` and
-  `__cfi_jt_cleanup_module`, matching KernelSU's LKM entry shape. Set
-  `SELHIDE_ASM_INIT=1` only to reproduce the older hand-written init wrapper.
+  `__cfi_jt_cleanup_module`, matching KernelSU's LKM entry shape.
+- Local ACK / `FORCE_MAKE=1` builds whose compiler does not emit KCFI landing
+  pads must set `SELHIDE_ASM_INIT=1`; otherwise KCFI kernels can panic in
+  `do_one_initcall` before `phase0 loading` is printed.
 - On-device testing is intended to use the one-click Android shell wrappers:
   `run_popsicle_local_smoke.sh` for one conservative load/probe/unload cycle,
   or `run_popsicle_local_app_stress.sh` for three DirtySepolicy APK rounds.

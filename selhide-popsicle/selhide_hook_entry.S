@@ -9,6 +9,15 @@
  */
 
 	.section ".text", "ax"
+
+/*
+ * BTI c. Older arm64 CPUs treat this as a hint/NOP, while BTI-enabled kernels
+ * require it for functions reached through indirect branches.
+ */
+	.macro selhide_bti_c
+	.inst 0xd503245f
+	.endm
+
 	.balign 4
 	.globl selhide_write_access_kcfi_word
 selhide_write_access_kcfi_word:
@@ -20,6 +29,7 @@ selhide_write_access_kcfi_word:
 	.globl selhide_write_access_entry
 	.type selhide_write_access_entry, %function
 selhide_write_access_entry:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	bl selhide_write_access_impl
@@ -38,6 +48,7 @@ selhide_write_context_kcfi_word:
 	.globl selhide_write_context_entry
 	.type selhide_write_context_entry, %function
 selhide_write_context_entry:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	bl selhide_write_context_impl
@@ -56,6 +67,7 @@ selhide_setprocattr_kcfi_word:
 	.globl selhide_setprocattr_entry
 	.type selhide_setprocattr_entry, %function
 selhide_setprocattr_entry:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	bl selhide_setprocattr_impl
@@ -68,6 +80,7 @@ selhide_setprocattr_entry:
 	.globl selhide_patch_text_cb_entry
 	.type selhide_patch_text_cb_entry, %function
 selhide_patch_text_cb_entry:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	bl selhide_patch_text_cb_impl
@@ -89,6 +102,7 @@ selhide_patch_text_cb_entry:
 	.globl selhide_call_string_to_context_struct
 	.type selhide_call_string_to_context_struct, %function
 selhide_call_string_to_context_struct:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -106,6 +120,7 @@ selhide_call_string_to_context_struct:
 	.globl selhide_call_sidtab_context_to_sid
 	.type selhide_call_sidtab_context_to_sid, %function
 selhide_call_sidtab_context_to_sid:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -121,6 +136,7 @@ selhide_call_sidtab_context_to_sid:
 	.globl selhide_call_context_struct_compute_av
 	.type selhide_call_context_struct_compute_av, %function
 selhide_call_context_struct_compute_av:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -139,6 +155,7 @@ selhide_call_context_struct_compute_av:
 	.globl selhide_call_kallsyms_lookup_name
 	.type selhide_call_kallsyms_lookup_name, %function
 selhide_call_kallsyms_lookup_name:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -152,6 +169,7 @@ selhide_call_kallsyms_lookup_name:
 	.globl selhide_call_policydb_read
 	.type selhide_call_policydb_read, %function
 selhide_call_policydb_read:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -166,6 +184,7 @@ selhide_call_policydb_read:
 	.globl selhide_call_policydb_load_isids
 	.type selhide_call_policydb_load_isids, %function
 selhide_call_policydb_load_isids:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -180,6 +199,7 @@ selhide_call_policydb_load_isids:
 	.globl selhide_call_sidtab_init
 	.type selhide_call_sidtab_init, %function
 selhide_call_sidtab_init:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -193,6 +213,7 @@ selhide_call_sidtab_init:
 	.globl selhide_call_policydb_destroy
 	.type selhide_call_policydb_destroy, %function
 selhide_call_policydb_destroy:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -206,6 +227,7 @@ selhide_call_policydb_destroy:
 	.globl selhide_call_sidtab_destroy
 	.type selhide_call_sidtab_destroy, %function
 selhide_call_sidtab_destroy:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -219,6 +241,7 @@ selhide_call_sidtab_destroy:
 	.globl selhide_call_write_op
 	.type selhide_call_write_op, %function
 selhide_call_write_op:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0
@@ -234,6 +257,7 @@ selhide_call_write_op:
 	.globl selhide_call_setprocattr
 	.type selhide_call_setprocattr, %function
 selhide_call_setprocattr:
+	selhide_bti_c
 	stp x29, x30, [sp, #-16]!
 	mov x29, sp
 	mov x8, x0

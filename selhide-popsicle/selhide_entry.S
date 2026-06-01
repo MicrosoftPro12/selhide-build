@@ -14,6 +14,7 @@
 	.globl init_module
 	.type init_module, %function
 init_module:
+	.inst 0xd503245f	/* BTI c */
 	b selhide_real_init
 	.size init_module, . - init_module
 
@@ -23,5 +24,6 @@ init_module:
 	.globl cleanup_module
 	.type cleanup_module, %function
 cleanup_module:
+	.inst 0xd503245f	/* BTI c */
 	b selhide_real_exit
 	.size cleanup_module, . - cleanup_module
