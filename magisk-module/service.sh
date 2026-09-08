@@ -8,6 +8,10 @@ ensure_state_dir || exit 1
 [ ! -f "$MODDIR/disable" ] || exit 0
 [ ! -f "$SAFE_MODE_FILE" ] || exit 0
 [ -f "$AUTOLOAD_FILE" ] || {
+    if [ "$(apply_list_mode)" = sync ]; then
+        refresh_apply_list_from_magisk >/dev/null 2>&1 ||
+            log_msg "boot Magisk denylist snapshot failed rc=$?"
+    fi
     write_status installed manual-trial-required
     exit 0
 }

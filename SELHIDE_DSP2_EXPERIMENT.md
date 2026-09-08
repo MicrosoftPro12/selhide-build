@@ -70,6 +70,23 @@ A good log should include:
 
 DirtySepolicy 2.0 APK should report no dirty sepolicy found.
 
+## DirtySepolicy v2.2 Delta
+
+Upstream release `v2.2` (2026-05-29) adds checks that are outside the currently
+validated three-hook scope:
+
+- It reads the five-word `/sys/fs/selinux/status` structure and validates
+  `sequence`, `enforcing`, `policyload`, and `deny_unknown` against different
+  expectations for kernels before and after 6.10.
+- It reads the access response sequence number and requires `avdSeqNo=1`.
+  SelHide currently initializes the synthetic clean-policy AVD sequence to
+  zero, so the v2.2 check is expected to report this even when all v2.0 probes
+  are hidden.
+
+Supporting v2.2 therefore requires a separately tested status read hook plus a
+synthetic AVD sequence fix. The existing 5.4, 5.15, and 6.12 v2.0 results must
+not be represented as v2.2 compatibility.
+
 ## p0.13 Stability Note
 
 The `20260518_144349` crash was an FPAC oops at

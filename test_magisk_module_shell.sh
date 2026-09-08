@@ -97,6 +97,9 @@ action_root="$(mktemp -d "${TMPDIR:-/tmp}/selhide-action-test.XXXXXX")"
 action_state="$(mktemp -d "${TMPDIR:-/tmp}/selhide-action-state.XXXXXX")"
 action_bin="$(mktemp -d "${TMPDIR:-/tmp}/selhide-action-bin.XXXXXX")"
 action_modules="$action_state/proc_modules"
+action_param="$action_state/clean_access"
+action_apply_param="$action_state/apply_appids"
+action_filter_param="$action_state/apply_filter"
 cp -a "$MODULE_ROOT/." "$action_root/"
 mkdir -p "$action_root/payload/modules/test" "$action_root/bin"
 printf '%s\n' module > "$action_root/payload/modules/test/selhide.ko"
@@ -106,6 +109,9 @@ printf '%s\n' \
     "$(uname -r)|payload/modules/test/selhide.ko|$action_module_sha|action-test" \
     > "$action_root/payload/manifest.tsv"
 : > "$action_modules"
+printf '%s\n' 1 > "$action_param"
+: > "$action_apply_param"
+printf '%s\n' 0 > "$action_filter_param"
 cat > "$action_root/bin/find_clean_sepolicy_load.sh" <<'EOF'
 #!/bin/sh
 printf '%s\n' clean-policy > "$OUT"
@@ -117,6 +123,13 @@ case "${1:-}" in
     --check-vermagic|--dry-run) exit 0 ;;
 esac
 printf '%s\n' 'selhide 1 0 - Live 0x0' > "$SELHIDE_PROC_MODULES"
+for argument in "$@"; do
+    case "$argument" in
+        clean_access=*) printf '%s\n' "${argument#*=}" > "$SELHIDE_CLEAN_ACCESS_PARAM" ;;
+        apply_appids=*) printf '%s\n' "${argument#*=}" > "$SELHIDE_APPLY_APPIDS_PARAM" ;;
+        apply_filter=*) printf '%s\n' "${argument#*=}" > "$SELHIDE_APPLY_FILTER_PARAM" ;;
+    esac
+done
 EOF
 cat > "$action_bin/rmmod" <<'EOF'
 #!/bin/sh
@@ -124,7 +137,25 @@ cat > "$action_bin/rmmod" <<'EOF'
 EOF
 cat > "$action_bin/sleep" <<'EOF'
 #!/bin/sh
+case "${1:-}" in
+    300) exec /bin/sleep 300 ;;
+esac
 exit 0
+EOF
+cat > "$action_bin/magisk" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = --denylist ] && [ "${2:-}" = ls ] || exit 2
+printf '%s\n' \
+    'com.example.alpha|com.example.alpha' \
+    'com.example.beta|com.example.beta:worker'
+EOF
+cat > "$action_bin/cmd" <<'EOF'
+#!/bin/sh
+[ "$*" = 'package list packages -U' ] || exit 2
+printf '%s\n' \
+    'package:com.example.alpha uid:10123' \
+    'package:com.example.beta uid:10124' \
+    'package:com.example.extra uid:10125'
 EOF
 cat > "$action_bin/getevent" <<'EOF'
 #!/bin/sh
@@ -135,26 +166,90 @@ esac
 EOF
 chmod 0755 "$action_root/bin/find_clean_sepolicy_load.sh" \
     "$action_root/bin/kallsyms_init_module" "$action_bin/rmmod" \
-    "$action_bin/sleep" "$action_bin/getevent"
-printf '%s\n' 'GUARD_SECONDS=5' 'TRIAL_SECONDS=5' > "$action_state/config.conf"
+    "$action_bin/sleep" "$action_bin/getevent" "$action_bin/magisk" \
+    "$action_bin/cmd"
+printf '%s\n' 'GUARD_SECONDS=5' 'TRIAL_SECONDS=5' 'APPLY_SYNC_SECONDS=300' > "$action_state/config.conf"
 
 run_action() {
     printf '%s\n' "$1" > "$action_state/action.key"
     SELHIDE_STATE_DIR="$action_state" \
     SELHIDE_PROC_MODULES="$action_modules" \
+    SELHIDE_CLEAN_ACCESS_PARAM="$action_param" \
+    SELHIDE_APPLY_APPIDS_PARAM="$action_apply_param" \
+    SELHIDE_APPLY_FILTER_PARAM="$action_filter_param" \
     SELHIDE_ACTION_KEY_FILE="$action_state/action.key" \
     PATH="$action_bin:$PATH" \
         sh "$action_root/action.sh" > "$action_state/action.out" 2>&1
+}
+
+run_ctl() {
+    SELHIDE_STATE_DIR="$action_state" \
+    SELHIDE_PROC_MODULES="$action_modules" \
+    SELHIDE_CLEAN_ACCESS_PARAM="$action_param" \
+    SELHIDE_APPLY_APPIDS_PARAM="$action_apply_param" \
+    SELHIDE_APPLY_FILTER_PARAM="$action_filter_param" \
+    PATH="$action_bin:$PATH" \
+        sh "$action_root/bin/selhide_ctl.sh" "$@"
 }
 
 run_action up || fail "first Action trial failed"
 [ -f "$action_state/trial_passed" ] || fail "first Action tap did not record trial"
 [ ! -s "$action_modules" ] || fail "first Action tap left module loaded"
 [ ! -e "$action_state/autoload" ] || fail "first Action tap enabled autoload"
+[ "$(cat "$action_apply_param")" = '10123,10124' ] ||
+    fail "trial did not receive Magisk denylist appIds"
+case "$(cat "$action_filter_param")" in
+    1|Y|y) ;;
+    *) fail "trial did not enable apply-list filtering" ;;
+esac
+
+# Sync mode mirrors Magisk and rejects edits. Manual mode starts from a fresh
+# snapshot and applies add/remove operations to a loaded module immediately.
+printf '%s\n' 'selhide 1 0 - Live 0x0' > "$action_modules"
+run_ctl apply-sync-now >/dev/null || fail "explicit Magisk denylist sync failed"
+if run_ctl apply-add com.example.extra >/dev/null 2>&1; then
+    fail "sync mode allowed manual editing"
+fi
+run_ctl apply-mode-manual >/dev/null || fail "manual snapshot mode failed"
+[ "$(cat "$action_state/apply-mode")" = manual ] || fail "manual mode was not persisted"
+run_ctl apply-add com.example.extra >/dev/null || fail "manual package add failed"
+[ "$(cat "$action_apply_param")" = '10123,10124,10125' ] ||
+    fail "manual package add did not update runtime appIds"
+run_ctl apply-remove com.example.beta >/dev/null || fail "manual package remove failed"
+[ "$(cat "$action_apply_param")" = '10123,10125' ] ||
+    fail "manual package remove did not update runtime appIds"
+apply_status="$(run_ctl web-status)"
+printf '%s\n' "$apply_status" | grep -Fx 'apply_mode=manual' >/dev/null ||
+    fail "WebUI status missed manual apply-list mode"
+printf '%s\n' "$apply_status" | grep -Fx 'apply_packages=com.example.alpha,com.example.extra' >/dev/null ||
+    fail "WebUI status missed selected packages"
+run_ctl apply-clear >/dev/null || fail "manual apply-list clear failed"
+[ "$(tr -d '\r\n ' < "$action_apply_param")" = 4294967295 ] ||
+    fail "manual clear did not install the empty-list sentinel"
+run_ctl apply-mode-sync >/dev/null || fail "continuous sync mode failed"
+[ "$(cat "$action_apply_param")" = '10123,10124' ] ||
+    fail "sync mode did not restore Magisk denylist appIds"
+run_ctl apply-mode-manual >/dev/null || fail "could not stop sync watcher for remaining tests"
+
+printf '%s\n' 1 > "$action_param"
+run_ctl hiding-off >/dev/null || fail "runtime hiding-off failed"
+[ "$(cat "$action_param")" = 0 ] || fail "hiding-off did not update runtime parameter"
+[ -f "$action_state/hiding_paused" ] || fail "hiding-off was not persisted"
+run_ctl hiding-on >/dev/null || fail "runtime hiding-on failed"
+[ "$(cat "$action_param")" = 1 ] || fail "hiding-on did not update runtime parameter"
+[ ! -e "$action_state/hiding_paused" ] || fail "hiding-on pause marker survived"
+web_status="$(run_ctl web-status)"
+printf '%s\n' "$web_status" | grep -Fx 'hiding_runtime=active' >/dev/null ||
+    fail "WebUI status missed active mode"
+: > "$action_modules"
+
 run_action up || fail "second Action enable failed"
 [ -f "$action_state/autoload" ] || fail "second Action tap did not enable autoload"
-run_action up || fail "Action keep-state choice failed"
-[ -f "$action_state/autoload" ] || fail "Volume Up did not preserve autoload"
+run_action up || fail "Action pause choice failed"
+[ -f "$action_state/hiding_paused" ] || fail "Volume Up did not pause hiding"
+[ -f "$action_state/autoload" ] || fail "runtime pause changed autoload"
+run_action up || fail "Action resume choice failed"
+[ ! -e "$action_state/hiding_paused" ] || fail "Volume Up did not resume hiding"
 run_action down || fail "third Action disable failed"
 [ ! -e "$action_state/autoload" ] || fail "third Action tap did not disable autoload"
 run_action none || fail "Action no-input fallback failed"
@@ -176,6 +271,10 @@ grep -Fq 'same one associated with the uncleared panic guard' "$action_state/act
 if [ -n "$ZIP_PATH" ]; then
     command -v unzip >/dev/null || fail "missing dependency: unzip"
     unzip -tq "$ZIP_PATH" >/dev/null
+    for entry in webroot/index.html webroot/app.js webroot/style.css; do
+        unzip -Z1 "$ZIP_PATH" | grep -Fx "$entry" >/dev/null ||
+            fail "ZIP is missing $entry"
+    done
 fi
 
 echo "PASS: Magisk module shell safety checks"

@@ -1,6 +1,6 @@
 id=selhide
 name=SelHide LKM (Experimental)
-version=0.1.3-exp
-versionCode=103
+version=0.3.0-exp
+versionCode=300
 author=MicrosoftPro12
-description=Guarded selhide LKM loader with a volume-key Action menu, identity-bound trials, and panic recovery.
+description=Guarded selhide LKM loader with Magisk denylist sync, live WebUI control, identity-bound trials, and panic recovery.

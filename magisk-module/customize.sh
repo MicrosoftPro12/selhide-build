@@ -9,7 +9,10 @@ chmod 0700 "$STATE_DIR"
 
 if [ ! -f "$STATE_DIR/installed" ]; then
     rm -f "$STATE_DIR/autoload" "$STATE_DIR/trial_passed" \
-        "$STATE_DIR/load_pending" "$STATE_DIR/safe_mode"
+        "$STATE_DIR/load_pending" "$STATE_DIR/safe_mode" \
+        "$STATE_DIR/hiding_paused" "$STATE_DIR/apply-list.txt" \
+        "$STATE_DIR/apply-appids.txt" "$STATE_DIR/apply-sync.pid"
+    echo sync > "$STATE_DIR/apply-mode"
     echo "installed=$(date 2>/dev/null || true)" > "$STATE_DIR/installed"
     chmod 0600 "$STATE_DIR/installed"
     ui_print "- First install: autoload is OFF"
@@ -36,5 +39,5 @@ set_perm "$MODPATH/bin/find_clean_sepolicy_load.sh" 0 0 0755
 set_perm "$MODPATH/bin/kallsyms_init_module" 0 0 0755
 
 ui_print "- Flashing never loads the LKM"
-ui_print "- Action uses volume keys for guarded configuration"
-ui_print "- No key or a timeout always leaves the current state unchanged"
+ui_print "- WebUI is the primary runtime control interface"
+ui_print "- Action provides a timeout-safe volume-key fallback"

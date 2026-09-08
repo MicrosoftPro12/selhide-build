@@ -1,15 +1,20 @@
 # SelHide Magisk Module Shell
 
 This package is deliberately conservative while kernel coverage is still being
-expanded. Installing or updating it never loads an LKM. The Magisk Action uses
-a volume-key flow so normal setup does not require a separate root terminal:
+expanded. Installing or updating it never loads an LKM. A `webroot` control
+panel is the primary interface in KernelSU Manager or a compatible Magisk host
+such as WebUI X. It reads live state through the host's root command bridge and
+does not run a separate receiver daemon.
+
+The Magisk Action remains a volume-key fallback:
 
 1. Before validation, press Volume Up to run preflight and a timed guarded
    trial. Volume Down cancels without loading.
 2. After that exact runtime identity passes, press Volume Up to enable boot
    autoload. Volume Down cancels, and the LKM is not loaded immediately.
-3. When autoload is enabled or the LKM is loaded, press Volume Down to disable
-   autoload and unload. Volume Up keeps the current state.
+3. When autoload is enabled or the LKM is loaded, press Volume Up to switch
+   between hiding and pass-through without unloading. Volume Down disables
+   autoload and unloads.
 
 Each prompt times out after 20 seconds and makes no change. The timeout can be
 overridden with `ACTION_KEY_TIMEOUT_SECONDS` in the persistent config file.
@@ -52,15 +57,42 @@ Run as root after installation:
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight
 /data/adb/modules/selhide/bin/selhide_ctl.sh trial 60
 /data/adb/modules/selhide/bin/selhide_ctl.sh enable-autoload
+/data/adb/modules/selhide/bin/selhide_ctl.sh hiding-off
+/data/adb/modules/selhide/bin/selhide_ctl.sh hiding-on
+/data/adb/modules/selhide/bin/selhide_ctl.sh apply-mode-manual
+/data/adb/modules/selhide/bin/selhide_ctl.sh apply-add com.example.app
+/data/adb/modules/selhide/bin/selhide_ctl.sh apply-mode-sync
 ```
 
 During `trial`, open DirtySepolicy before the timer expires. The module unloads
 at the end and records `trial_passed` only when unload succeeds.
 
-`import-denylist` writes `/data/adb/selhide/apply-list.txt`. This is currently
-metadata for the planned policy UI. The LKM hook remains global; per-app kernel
-enforcement must not be claimed until a cross-kernel-safe caller identity path
-is implemented.
+`hiding-off` leaves the hooks attached but changes all three callbacks to
+pass-through mode through the existing writable `clean_access` module
+parameter. `hiding-on` resumes clean-policy responses immediately. The desired
+mode is persistent and is applied to later manual or boot loads; guarded trials
+always test with hiding enabled.
+
+## Apply List
+
+The default `sync` mode continuously mirrors Magisk's denylist while SelHide is
+loaded. The WebUI treats the list as read-only in this mode. `apply-mode-manual`
+takes a fresh denylist snapshot, stops the sync watcher, and unlocks package
+add/remove controls. Returning to `apply-mode-sync` discards manual divergence
+and immediately refreshes from Magisk again.
+
+Packages are resolved to Android appIds before each load and whenever the list
+changes. The LKM then returns the clean policy only for selected appIds. This
+covers the same application across Android users, but also means packages with
+a shared UID are selected together. Process-level Magisk denylist entries are
+collapsed to their package because a stable process-name filter is not used in
+the kernel hook. The appId filter is still experimental until AppZygote caller
+identity is confirmed on every supported kernel family.
+
+Persistent files are under `/data/adb/selhide`: `apply-mode`, `apply-list.txt`,
+and the generated `apply-appids.txt`. Sync runs every 30 seconds by default;
+`APPLY_SYNC_SECONDS` in `config.conf` can change the interval, with a minimum of
+five seconds.
 
 ## Recovery
 

@@ -24,6 +24,7 @@
 #include <linux/uaccess.h>
 #include <linux/lsm_hooks.h>
 #include <linux/atomic.h>
+#include <linux/cred.h>
 #include <linux/sched.h>
 #include <linux/string.h>
 
@@ -117,6 +118,46 @@ static struct sidtab backup_sidtab;
 static bool policydb_loaded;
 static bool sidtab_inited;
 static bool policy_loaded;
+
+#define SELHIDE_ANDROID_UID_RANGE 100000U
+#define SELHIDE_MAX_APPLY_APPIDS 256
+
+static unsigned int apply_appids[SELHIDE_MAX_APPLY_APPIDS];
+static unsigned int apply_appid_count;
+module_param_array_named(apply_appids, apply_appids, uint,
+			 &apply_appid_count, 0644);
+MODULE_PARM_DESC(apply_appids,
+		 "comma-separated Android appIds that receive clean-policy responses");
+
+static bool enable_apply_filter;
+module_param_named(apply_filter, enable_apply_filter, bool, 0644);
+MODULE_PARM_DESC(apply_filter,
+		 "restrict clean-policy responses to apply_appids; default off");
+
+static unsigned int current_android_appid(void)
+{
+	return (unsigned int)__kuid_val(current_uid()) %
+	       SELHIDE_ANDROID_UID_RANGE;
+}
+
+static bool current_appid_is_selected(void)
+{
+	unsigned int appid;
+	unsigned int count;
+	unsigned int i;
+
+	if (!READ_ONCE(enable_apply_filter))
+		return true;
+
+	appid = current_android_appid();
+	count = min_t(unsigned int, READ_ONCE(apply_appid_count),
+		      SELHIDE_MAX_APPLY_APPIDS);
+	for (i = 0; i < count; i++) {
+		if (READ_ONCE(apply_appids[i]) == appid)
+			return true;
+	}
+	return false;
+}
 
 static bool enable_access_hook;
 module_param_named(access_hook, enable_access_hook, bool, 0644);
@@ -715,8 +756,9 @@ static void trace_access_query(const char *stage, const char *query,
 	if (!trace_query_should_log(&trace_access_seen, dirty))
 		return;
 
-	pr_info(SELHIDE_TAG "trace access[%s] pid=%d comm=%s ret=%zd tclass=%u allowed=0x%x flags=0x%x dirty=%d query=\"%.*s\"\n",
-		stage, current->pid, current->comm, ret, tclass,
+	pr_info(SELHIDE_TAG "trace access[%s] pid=%d uid=%u appid=%u comm=%s ret=%zd tclass=%u allowed=0x%x flags=0x%x dirty=%d query=\"%.*s\"\n",
+		stage, current->pid, (unsigned int)__kuid_val(current_uid()),
+		current_android_appid(), current->comm, ret, tclass,
 		avd ? avd->allowed : 0, avd ? avd->flags : 0, dirty,
 		(int)query_len, query);
 }
@@ -733,8 +775,9 @@ static void trace_context_query(const char *stage, const char *query,
 	if (!trace_query_should_log(&trace_context_seen, dirty))
 		return;
 
-	pr_info(SELHIDE_TAG "trace context[%s] pid=%d comm=%s ret=%zd sid=%u dirty=%d query=\"%.*s\"\n",
-		stage, current->pid, current->comm, ret, sid, dirty,
+	pr_info(SELHIDE_TAG "trace context[%s] pid=%d uid=%u appid=%u comm=%s ret=%zd sid=%u dirty=%d query=\"%.*s\"\n",
+		stage, current->pid, (unsigned int)__kuid_val(current_uid()),
+		current_android_appid(), current->comm, ret, sid, dirty,
 		(int)query_len, query);
 }
 
@@ -751,8 +794,9 @@ static void trace_setprocattr_query(const char *stage, const char *name,
 	if (!trace_query_should_log(&trace_setprocattr_seen, dirty))
 		return;
 
-	pr_info(SELHIDE_TAG "trace setprocattr[%s] pid=%d comm=%s name=%s ret=%d clean_ret=%d sid=%u dirty=%d query=\"%.*s\"\n",
-		stage, current->pid, current->comm, name ? name : "?",
+	pr_info(SELHIDE_TAG "trace setprocattr[%s] pid=%d uid=%u appid=%u comm=%s name=%s ret=%d clean_ret=%d sid=%u dirty=%d query=\"%.*s\"\n",
+		stage, current->pid, (unsigned int)__kuid_val(current_uid()),
+		current_android_appid(), current->comm, name ? name : "?",
 		ret, clean_ret, sid, dirty, (int)query_len, query);
 }
 
@@ -839,19 +883,22 @@ ssize_t selhide_write_access_impl(struct file *file, char *buf, size_t size)
 	size_t query_len = 0;
 	ssize_t length;
 	u16 tclass = 0;
+	bool selected;
 
 	if (unlikely(!orig_access_write))
 		return -EIO;
 
 	query = trace_copy_query(buf, size, &query_len);
+	selected = current_appid_is_selected();
 
-	if (!enable_clean_access) {
+	if (!enable_clean_access || !selected) {
 		if (!logged_passthrough) {
 			logged_passthrough = true;
 			pr_info(SELHIDE_TAG "SEL_ACCESS passthrough hit\n");
 		}
 		length = selhide_call_write_op(orig_access_write, file, buf, size);
-		trace_access_query("passthrough", query, query_len, length, 0,
+		trace_access_query(selected ? "passthrough" : "not-selected",
+				   query, query_len, length, 0,
 				   NULL);
 		kfree(query);
 		return length;
@@ -902,20 +949,23 @@ ssize_t selhide_write_context_impl(struct file *file, char *buf, size_t size)
 	size_t query_len = 0;
 	ssize_t length;
 	u32 sid = 0;
+	bool selected;
 
 	if (unlikely(!orig_context_write))
 		return -EIO;
 
 	query = trace_copy_query(buf, size, &query_len);
+	selected = current_appid_is_selected();
 
-	if (!enable_context_hook || !enable_clean_access) {
+	if (!enable_context_hook || !enable_clean_access || !selected) {
 		if (!logged_passthrough) {
 			logged_passthrough = true;
 			pr_info(SELHIDE_TAG "SEL_CONTEXT passthrough hit\n");
 		}
 		length = selhide_call_write_op(orig_context_write, file, buf,
 					       size);
-		trace_context_query("passthrough", query, query_len, length, 0);
+		trace_context_query(selected ? "passthrough" : "not-selected",
+				    query, query_len, length, 0);
 		kfree(query);
 		return length;
 	}
@@ -969,14 +1019,17 @@ int selhide_setprocattr_impl(const char *name, void *value, size_t size)
 	int ret;
 	int clean_ret;
 	u32 sid = 0;
+	bool selected;
 
 	if (unlikely(!orig_setprocattr))
 		return -EIO;
 
 	query = trace_copy_query(value, size, &query_len);
 	ret = selhide_call_setprocattr(orig_setprocattr, name, value, size);
-	if (!enable_setprocattr_hook || !enable_clean_access) {
-		trace_setprocattr_query("disabled", name, query, query_len, ret,
+	selected = current_appid_is_selected();
+	if (!enable_setprocattr_hook || !enable_clean_access || !selected) {
+		trace_setprocattr_query(selected ? "disabled" : "not-selected",
+					name, query, query_len, ret,
 					0, 0);
 		kfree(query);
 		return ret;
@@ -1597,4 +1650,4 @@ module_exit(selhide_real_exit);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("selhide");
 MODULE_DESCRIPTION("selhide phase0 probe + guarded SEL_ACCESS/SEL_CONTEXT/setprocattr hooks");
-MODULE_VERSION("p0.13-dirtysepolicy2-exp");
+MODULE_VERSION("p0.14-applylist-exp");

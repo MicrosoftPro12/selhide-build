@@ -45,15 +45,19 @@ KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 ## Guarded Magisk package
 
 `build_magisk_module.sh` packages exact `uname -r` artifacts into an
-experimental Magisk module. Installation never loads an LKM. Magisk Action
-uses a timeout-bounded volume-key menu to run a timed trial, enable boot
-autoload for the exact tested identity, or disable and unload. The root
-controller remains available for explicit operation:
+experimental Magisk module. Installation never loads an LKM. Its `webroot`
+panel uses the KernelSU-compatible root command bridge as the primary control
+path; WebUI X provides the same bridge for Magisk. A timeout-bounded volume-key
+Action remains the fallback. The root controller is also available directly:
 
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight
 /data/adb/modules/selhide/bin/selhide_ctl.sh trial 60
 /data/adb/modules/selhide/bin/selhide_ctl.sh enable-autoload
+/data/adb/modules/selhide/bin/selhide_ctl.sh hiding-off
+/data/adb/modules/selhide/bin/selhide_ctl.sh hiding-on
+/data/adb/modules/selhide/bin/selhide_ctl.sh apply-mode-manual
+/data/adb/modules/selhide/bin/selhide_ctl.sh apply-mode-sync
 ```
 
 Every load first persists a panic marker. If it is not cleared during the same
@@ -68,9 +72,14 @@ init and cleanup symbols carry the expected KCFI entry type IDs. This catches a
 class of otherwise fatal modules that can pass vermagic and unresolved-symbol
 checks but panic in `do_one_initcall()` before the module prints its first log.
 
-`import-denylist` currently creates apply-list metadata only. The LKM remains a
-global hook; per-app enforcement and WebUI controls are intentionally not yet
-claimed as implemented.
+`hiding-off` switches the loaded callbacks to original-policy pass-through via
+the existing writable module parameter, without unloading. The apply list
+defaults to continuously mirroring Magisk's denylist. Switching to manual mode
+takes a fresh denylist snapshot and unlocks package add/remove controls in the
+WebUI. Userspace resolves packages to Android appIds; `apply_filter=1` limits
+clean-policy responses to those appIds across Android users. Shared-UID packages
+are necessarily selected together. This path remains experimental until the
+AppZygote caller identity has been traced on each supported kernel family.
 
 For renoir / Android 12 / 5.4.147-qgki, run the workflow manually with
 `kmi=android12-5.4`. That path downloads the Android common

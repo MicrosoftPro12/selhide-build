@@ -11,7 +11,7 @@ ensure_state_dir || {
 trap 'cleanup_volume_key_listener' EXIT INT TERM
 
 echo "SelHide guarded Action"
-"$MODDIR/bin/selhide_ctl.sh" status
+sh "$MODDIR/bin/selhide_ctl.sh" status
 echo
 
 read_action_key() {
@@ -32,11 +32,23 @@ read_action_key() {
 # Once enabled, Action offers an emergency off path. Disable autoload before
 # attempting rmmod so a failed unload cannot silently remain persistent.
 if [ -f "$AUTOLOAD_FILE" ] || module_is_loaded; then
-    echo "Volume UP: keep the current state"
+    action_hiding_runtime="$(runtime_hiding_state)"
+    action_hiding_desired="$(desired_hiding_state)"
+    if [ "$action_hiding_runtime" = "active" ] ||
+        { [ "$action_hiding_runtime" = "unloaded" ] && [ "$action_hiding_desired" = "active" ]; }; then
+        echo "Volume UP: pause hiding without unloading"
+    else
+        echo "Volume UP: resume hiding without reloading"
+    fi
     echo "Volume DOWN: disable autoload and unload SelHide"
     read_action_key || exit 0
-    if [ "$action_key" != "down" ]; then
-        echo "Current state kept."
+    if [ "$action_key" = "up" ]; then
+        toggle_runtime_hiding || {
+            rc=$?
+            echo "ERROR: hiding state change failed (rc=$rc)."
+            exit "$rc"
+        }
+        echo "SelHide runtime mode updated."
         exit 0
     fi
     echo "Disabling autoload..."
