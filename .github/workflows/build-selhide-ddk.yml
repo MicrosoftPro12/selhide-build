@@ -179,6 +179,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install ACK build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential clang flex libelf-dev libssl-dev lld llvm
+
       - name: Prepare Android 12 5.4 ACK tree
         shell: bash
         run: |
