@@ -123,3 +123,21 @@ and a full DirtySepolicy 2.0 run. The hashed CFI target was found as `kind=cfi_j
 all three hooks were installed, the app reported `OK`, and all hooks were
 restored on unload. The tested module SHA-256 is
 `a38eda9e78bfd2880ee81d9705086249f6eafceb451acd9407e293c2103abf7f`.
+
+## GitHub Reproducibility Result
+
+GitHub Actions run `34197943429` at commit `529a09e` completed both the
+Android 16/6.12 DDK job and the Renoir Android 12/5.4 ACK job successfully.
+The Renoir job independently downloaded and prepared ACK, cross-compiled the
+module on an x86_64 hosted runner, verified its CFI entry symbols, and uploaded
+the artifact.
+
+The resulting `selhide-renoir-android12-5.4.147-qgki.ko` has SHA-256
+`f08d9b31b017137fe522e2d2ab8bb3b4b6035fe4bd5a0e7a3b31b040ae0423ea`
+and exact target vermagic
+`5.4.147-qgki-ga2bfd24da692 SMP preempt mod_unload modversions aarch64`.
+On the Renoir device it passed 45/45 loader symbol resolution, a two-second
+hook-only run, and a full DirtySepolicy 2.0 query run. Magisk, `magisk_file`,
+and `lsposed_file` context probes all took the hidden path; all three hooks
+were restored and the module was absent after unload. Automated UI capture is
+not available on this ROM because its `screencap` process crashes independently.
