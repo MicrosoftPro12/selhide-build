@@ -42,6 +42,30 @@ Against a local Android common kernel tree:
 KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 ```
 
+## Guarded Magisk package
+
+`build_magisk_module.sh` packages exact `uname -r` artifacts into an
+experimental Magisk module. Installation and the Magisk Action never load an
+LKM. After installation, use the root controller for a load-free preflight and
+then an explicit guarded trial:
+
+```sh
+/data/adb/modules/selhide/bin/selhide_ctl.sh preflight
+/data/adb/modules/selhide/bin/selhide_ctl.sh trial 60
+/data/adb/modules/selhide/bin/selhide_ctl.sh enable-autoload
+```
+
+Every load first persists a panic marker. If it is not cleared during the same
+boot, the next `post-fs-data` pass disables the Magisk module, removes autoload,
+enters safe mode, and captures available pstore evidence. Trial authorization
+is tied to hashes of the exact KO, loader and clean policy, so package or policy
+updates require another trial. See `magisk-module/README.md` for recovery and
+configuration details.
+
+`import-denylist` currently creates apply-list metadata only. The LKM remains a
+global hook; per-app enforcement and WebUI controls are intentionally not yet
+claimed as implemented.
+
 For renoir / Android 12 / 5.4.147-qgki, run the workflow manually with
 `kmi=android12-5.4`. That path downloads the Android common
 `android12-5.4.147_r00` source archive, applies
