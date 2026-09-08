@@ -134,7 +134,13 @@ jobs:
                 exit 1
               fi
             }
-            check_bti_entry 'selhide_real_init.cfi_jt'
+            # CFI-LTO builds expose this jump-table entry; KCFI/non-LTO builds
+            # call selhide_real_init directly and legitimately omit it.
+            if grep -q '<selhide_real_init.cfi_jt>:' "${ko}.objdump.txt"; then
+              check_bti_entry 'selhide_real_init.cfi_jt'
+            else
+              echo "selhide_real_init.cfi_jt not emitted; direct init entry is expected"
+            fi
             check_bti_entry 'selhide_write_access_entry'
             check_bti_entry 'selhide_patch_text_cb_entry'
             sed -n '/<selhide_write_access_impl>:/,/^$/p' "${ko}.objdump.txt" \
