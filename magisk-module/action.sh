@@ -8,14 +8,37 @@ ensure_state_dir || {
     echo "ERROR: cannot create $STATE_DIR"
     exit 10
 }
+trap 'cleanup_volume_key_listener' EXIT INT TERM
 
 echo "SelHide guarded Action"
 "$MODDIR/bin/selhide_ctl.sh" status
 echo
 
-# Once enabled, Action behaves as an emergency off switch. Disable autoload
-# before attempting rmmod so a failed unload cannot silently remain persistent.
+read_action_key() {
+    wait_volume_key "$ACTION_KEY_TIMEOUT_SECONDS"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        if [ "$rc" -eq 1 ]; then
+            echo "No volume key received within ${ACTION_KEY_TIMEOUT_SECONDS}s. No change made."
+        else
+            echo "Volume-key input is unavailable. No change made."
+        fi
+        return "$rc"
+    fi
+    action_key="$VOLUME_KEY_RESULT"
+    return 0
+}
+
+# Once enabled, Action offers an emergency off path. Disable autoload before
+# attempting rmmod so a failed unload cannot silently remain persistent.
 if [ -f "$AUTOLOAD_FILE" ] || module_is_loaded; then
+    echo "Volume UP: keep the current state"
+    echo "Volume DOWN: disable autoload and unload SelHide"
+    read_action_key || exit 0
+    if [ "$action_key" != "down" ]; then
+        echo "Current state kept."
+        exit 0
+    fi
     echo "Disabling autoload..."
     disable_autoload || exit $?
     if module_is_loaded; then
@@ -62,6 +85,13 @@ echo
 
 if trial_matches_current; then
     echo "The current kernel/module/loader/policy identity already passed trial."
+    echo "Volume UP: enable boot autoload"
+    echo "Volume DOWN: cancel"
+    read_action_key || exit 0
+    if [ "$action_key" != "up" ]; then
+        echo "Canceled. Autoload remains OFF."
+        exit 0
+    fi
     echo "Enabling boot autoload..."
     enable_autoload || {
         rc=$?
@@ -70,6 +100,14 @@ if trial_matches_current; then
     }
     echo "Autoload is ON. Reboot to test guarded boot loading."
     echo "Tap Action again at any time to turn it off."
+    exit 0
+fi
+
+echo "Volume UP: start the guarded trial"
+echo "Volume DOWN: cancel without loading"
+read_action_key || exit 0
+if [ "$action_key" != "up" ]; then
+    echo "Canceled. Nothing was loaded."
     exit 0
 fi
 
@@ -83,4 +121,4 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 echo "Trial passed and SelHide unloaded cleanly."
-echo "Tap Action again to enable boot autoload."
+echo "Open Action again and press Volume UP to enable boot autoload."

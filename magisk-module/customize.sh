@@ -36,5 +36,5 @@ set_perm "$MODPATH/bin/find_clean_sepolicy_load.sh" 0 0 0755
 set_perm "$MODPATH/bin/kallsyms_init_module" 0 0 0755
 
 ui_print "- Flashing never loads the LKM"
-ui_print "- First Action tap runs a guarded compatibility trial"
-ui_print "- Second tap enables autoload; another tap turns it off"
+ui_print "- Action uses volume keys for guarded configuration"
+ui_print "- No key or a timeout always leaves the current state unchanged"

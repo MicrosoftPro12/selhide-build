@@ -46,9 +46,9 @@ KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 
 `build_magisk_module.sh` packages exact `uname -r` artifacts into an
 experimental Magisk module. Installation never loads an LKM. Magisk Action
-provides a staged guarded flow: first tap runs a timed trial, second tap enables
-boot autoload for the exact tested identity, and a later tap disables autoload
-and unloads. The root controller remains available for explicit operation:
+uses a timeout-bounded volume-key menu to run a timed trial, enable boot
+autoload for the exact tested identity, or disable and unload. The root
+controller remains available for explicit operation:
 
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight

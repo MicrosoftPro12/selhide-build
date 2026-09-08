@@ -2,14 +2,17 @@
 
 This package is deliberately conservative while kernel coverage is still being
 expanded. Installing or updating it never loads an LKM. The Magisk Action uses
-a staged flow so normal setup does not require a separate root terminal:
+a volume-key flow so normal setup does not require a separate root terminal:
 
-1. The first tap runs preflight, performs a timed guarded trial, unloads, and
-   records success only after a clean unload.
-2. After that exact runtime identity passes, the second tap enables boot
-   autoload and asks for a reboot. It does not load the LKM immediately.
-3. When autoload is enabled or the LKM is loaded, Action disables autoload and
-   unloads the LKM, making the same button an emergency off switch.
+1. Before validation, press Volume Up to run preflight and a timed guarded
+   trial. Volume Down cancels without loading.
+2. After that exact runtime identity passes, press Volume Up to enable boot
+   autoload. Volume Down cancels, and the LKM is not loaded immediately.
+3. When autoload is enabled or the LKM is loaded, press Volume Down to disable
+   autoload and unload. Volume Up keeps the current state.
+
+Each prompt times out after 20 seconds and makes no change. The timeout can be
+overridden with `ACTION_KEY_TIMEOUT_SECONDS` in the persistent config file.
 
 Persistent safe mode is never cleared by Action. In particular, Action refuses
 to retry the same artifact associated with an uncleared panic guard.

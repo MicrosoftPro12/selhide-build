@@ -126,30 +126,46 @@ cat > "$action_bin/sleep" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
+cat > "$action_bin/getevent" <<'EOF'
+#!/bin/sh
+case "$(cat "$SELHIDE_ACTION_KEY_FILE" 2>/dev/null)" in
+    up) echo '/dev/input/event0: EV_KEY KEY_VOLUMEUP DOWN' ;;
+    down) echo '/dev/input/event0: EV_KEY KEY_VOLUMEDOWN DOWN' ;;
+esac
+EOF
 chmod 0755 "$action_root/bin/find_clean_sepolicy_load.sh" \
-    "$action_root/bin/kallsyms_init_module" "$action_bin/rmmod" "$action_bin/sleep"
+    "$action_root/bin/kallsyms_init_module" "$action_bin/rmmod" \
+    "$action_bin/sleep" "$action_bin/getevent"
 printf '%s\n' 'GUARD_SECONDS=5' 'TRIAL_SECONDS=5' > "$action_state/config.conf"
 
 run_action() {
+    printf '%s\n' "$1" > "$action_state/action.key"
     SELHIDE_STATE_DIR="$action_state" \
     SELHIDE_PROC_MODULES="$action_modules" \
+    SELHIDE_ACTION_KEY_FILE="$action_state/action.key" \
     PATH="$action_bin:$PATH" \
         sh "$action_root/action.sh" > "$action_state/action.out" 2>&1
 }
 
-run_action || fail "first Action tap failed"
+run_action up || fail "first Action trial failed"
 [ -f "$action_state/trial_passed" ] || fail "first Action tap did not record trial"
 [ ! -s "$action_modules" ] || fail "first Action tap left module loaded"
 [ ! -e "$action_state/autoload" ] || fail "first Action tap enabled autoload"
-run_action || fail "second Action tap failed"
+run_action up || fail "second Action enable failed"
 [ -f "$action_state/autoload" ] || fail "second Action tap did not enable autoload"
-run_action || fail "third Action tap failed"
+run_action up || fail "Action keep-state choice failed"
+[ -f "$action_state/autoload" ] || fail "Volume Up did not preserve autoload"
+run_action down || fail "third Action disable failed"
 [ ! -e "$action_state/autoload" ] || fail "third Action tap did not disable autoload"
+run_action none || fail "Action no-input fallback failed"
+[ ! -e "$action_state/autoload" ] || fail "no-input fallback changed autoload"
+find "$action_state" -maxdepth 1 -name '.action_getevent.*' | grep -q . &&
+    fail "Action left a getevent capture file behind"
 
 touch "$action_state/safe_mode"
 printf '%s\n' "sha256=$action_module_sha" > \
     "$action_state/recovered_guard_20000101_000000.txt"
-if run_action; then
+if run_action up; then
     fail "Action bypassed persistent safe mode"
 fi
 grep -Fq 'BLOCKED: persistent safe mode is active.' "$action_state/action.out" ||

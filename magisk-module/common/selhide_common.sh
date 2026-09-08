@@ -53,8 +53,66 @@ load_defaults() {
     BOOT_WAIT_SECONDS=180
     TRACE_QUERIES=0
     TRACE_LIMIT=16
+    ACTION_KEY_TIMEOUT_SECONDS=20
     [ -r "$MODDIR/config/default.conf" ] && . "$MODDIR/config/default.conf"
     [ -r "$STATE_DIR/config.conf" ] && . "$STATE_DIR/config.conf"
+}
+
+wait_volume_key() {
+    seconds="${1:-20}"
+    VOLUME_KEY_RESULT=""
+    case "$seconds" in
+        ''|*[!0-9]*) seconds=20 ;;
+    esac
+    [ "$seconds" -gt 0 ] || return 1
+    command -v getevent >/dev/null 2>&1 || return 2
+
+    VOLUME_GETEVENT_FILE="$STATE_DIR/.action_getevent.$$"
+    : > "$VOLUME_GETEVENT_FILE" || return 2
+    getevent -ql > "$VOLUME_GETEVENT_FILE" 2>/dev/null &
+    VOLUME_GETEVENT_PID=$!
+
+    # Start getevent once. Some Android builds take several seconds to kill a
+    # blocked getevent process, making repeated timeout(1) calls much too slow.
+    remaining=$((seconds * 5))
+    while [ "$remaining" -gt 0 ]; do
+        event="$(grep -m 1 \
+            -e 'KEY_VOLUMEUP' \
+            -e 'KEY_VOLUMEDOWN' \
+            "$VOLUME_GETEVENT_FILE" 2>/dev/null || true)"
+        case "$event" in
+            *KEY_VOLUMEUP*)
+                cleanup_volume_key_listener
+                VOLUME_KEY_RESULT=up
+                return 0
+                ;;
+            *KEY_VOLUMEDOWN*)
+                cleanup_volume_key_listener
+                VOLUME_KEY_RESULT=down
+                return 0
+                ;;
+        esac
+        if ! kill -0 "$VOLUME_GETEVENT_PID" 2>/dev/null; then
+            cleanup_volume_key_listener
+            return 2
+        fi
+        sleep 0.2
+        remaining=$((remaining - 1))
+    done
+    cleanup_volume_key_listener
+    return 1
+}
+
+cleanup_volume_key_listener() {
+    if [ -n "${VOLUME_GETEVENT_PID:-}" ]; then
+        kill -9 "$VOLUME_GETEVENT_PID" 2>/dev/null || true
+        wait "$VOLUME_GETEVENT_PID" 2>/dev/null || true
+        VOLUME_GETEVENT_PID=""
+    fi
+    if [ -n "${VOLUME_GETEVENT_FILE:-}" ]; then
+        rm -f "$VOLUME_GETEVENT_FILE"
+        VOLUME_GETEVENT_FILE=""
+    fi
 }
 
 module_is_loaded() {
