@@ -11,11 +11,6 @@
 
 set -u
 
-case "$0" in
-    */*) SCRIPT_DIR="${0%/*}" ;;
-    *) SCRIPT_DIR="." ;;
-esac
-
 OUT_DIR="${OUT_DIR:-$(pwd)}"
 OUT="${OUT:-$OUT_DIR/clean_sepolicy_load}"
 REPORT="${REPORT:-$OUT_DIR/clean_sepolicy_report.txt}"
@@ -53,8 +48,14 @@ is_probable_binary_policy() {
     [ "$size" -gt 65536 ] || return 1
     [ "$size" -lt 33554432 ] || return 1
 
-    # CIL/text policy is not directly loadable by selhide's in-kernel parser.
-    head -c 256 "$p" 2>/dev/null | grep -qaE '^(\\(type |\\(allow |#|type |allow )' && return 1
+    # In basic grep syntax an unescaped '(' is literal. Avoid ERE groups here:
+    # older Android grep implementations disagree on backslash handling.
+    head -c 256 "$p" 2>/dev/null | grep -qa \
+        -e '^(type ' \
+        -e '^(allow ' \
+        -e '^#' \
+        -e '^type ' \
+        -e '^allow ' && return 1
     return 0
 }
 
@@ -93,7 +94,11 @@ inventory_split_policy() {
     do
         [ -d "$d" ] || continue
         find "$d" -maxdepth 1 -type f 2>/dev/null \
-            | grep -E '(/precompiled_sepolicy|\\.cil$|\\.compat\\.cil$|\\.sha256$)' \
+            | grep -E \
+                -e '/precompiled_sepolicy' \
+                -e '\.cil$' \
+                -e '\.compat\.cil$' \
+                -e '\.sha256$' \
             | sort \
             | while IFS= read -r f; do
                 log "  $(file_size "$f") $(sha256_file "$f") $f"

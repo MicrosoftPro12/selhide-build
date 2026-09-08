@@ -1,8 +1,18 @@
 # SelHide Magisk Module Shell
 
 This package is deliberately conservative while kernel coverage is still being
-expanded. Installing or updating it never loads an LKM. The Magisk action also
-runs only a load-free preflight.
+expanded. Installing or updating it never loads an LKM. The Magisk Action uses
+a staged flow so normal setup does not require a separate root terminal:
+
+1. The first tap runs preflight, performs a timed guarded trial, unloads, and
+   records success only after a clean unload.
+2. After that exact runtime identity passes, the second tap enables boot
+   autoload and asks for a reboot. It does not load the LKM immediately.
+3. When autoload is enabled or the LKM is loaded, Action disables autoload and
+   unloads the LKM, making the same button an emergency off switch.
+
+Persistent safe mode is never cleared by Action. In particular, Action refuses
+to retry the same artifact associated with an uncleared panic guard.
 
 ## Panic Guard
 

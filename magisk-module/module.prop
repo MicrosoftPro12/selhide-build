@@ -1,6 +1,6 @@
 id=selhide
 name=SelHide LKM (Experimental)
-version=0.1.1-exp
-versionCode=101
+version=0.1.2-exp
+versionCode=102
 author=MicrosoftPro12
-description=Guarded selhide LKM loader. First install never autoloads; run a compatibility trial before enabling boot load.
+description=Guarded selhide LKM loader. Action runs a trial, enables autoload after validation, and acts as an emergency off switch.

@@ -45,9 +45,10 @@ KDIR=/path/to/common FORCE_MAKE=1 ./build_selhide_ddk.sh
 ## Guarded Magisk package
 
 `build_magisk_module.sh` packages exact `uname -r` artifacts into an
-experimental Magisk module. Installation and the Magisk Action never load an
-LKM. After installation, use the root controller for a load-free preflight and
-then an explicit guarded trial:
+experimental Magisk module. Installation never loads an LKM. Magisk Action
+provides a staged guarded flow: first tap runs a timed trial, second tap enables
+boot autoload for the exact tested identity, and a later tap disables autoload
+and unloads. The root controller remains available for explicit operation:
 
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight

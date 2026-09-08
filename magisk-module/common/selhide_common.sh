@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
 STATE_DIR="${SELHIDE_STATE_DIR:-/data/adb/selhide}"
+PROC_MODULES="${SELHIDE_PROC_MODULES:-/proc/modules}"
 LOG_FILE="$STATE_DIR/selhide.log"
 STATUS_FILE="$STATE_DIR/status.env"
 GUARD_FILE="$STATE_DIR/load_pending"
@@ -57,7 +58,7 @@ load_defaults() {
 }
 
 module_is_loaded() {
-    grep -q '^selhide ' /proc/modules 2>/dev/null
+    grep -q '^selhide ' "$PROC_MODULES" 2>/dev/null
 }
 
 sha256_file() {

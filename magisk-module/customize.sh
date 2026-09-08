@@ -36,5 +36,5 @@ set_perm "$MODPATH/bin/find_clean_sepolicy_load.sh" 0 0 0755
 set_perm "$MODPATH/bin/kallsyms_init_module" 0 0 0755
 
 ui_print "- Flashing never loads the LKM"
-ui_print "- Magisk Action runs preflight only"
-ui_print "- A guarded trial is required before autoload can be enabled"
+ui_print "- First Action tap runs a guarded compatibility trial"
+ui_print "- Second tap enables autoload; another tap turns it off"

@@ -15,6 +15,11 @@ for file in "$MODULE_ROOT"/*.sh "$MODULE_ROOT"/bin/*.sh "$MODULE_ROOT"/common/*.
     sh -n "$file"
 done
 
+# Keep policy text detection compatible with Android's basic grep parser.
+printf '%s\n' '(type test_type)' | grep -qa \
+    -e '^(type ' -e '^(allow ' -e '^#' -e '^type ' -e '^allow ' ||
+    fail "portable CIL detection pattern did not match"
+
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/selhide-shell-test.XXXXXX")"
 state="$(mktemp -d "${TMPDIR:-/tmp}/selhide-state-test.XXXXXX")"
 cp -a "$MODULE_ROOT/." "$test_root/"
@@ -86,6 +91,72 @@ fi
 clear_panic_guard "$second_guard"
 [ ! -e "$GUARD_FILE" ] || fail "current guard ID was not cleared"
 
+# Exercise the Magisk Action state machine with an isolated module table and
+# fake loader. No host kernel operation is performed by this test.
+action_root="$(mktemp -d "${TMPDIR:-/tmp}/selhide-action-test.XXXXXX")"
+action_state="$(mktemp -d "${TMPDIR:-/tmp}/selhide-action-state.XXXXXX")"
+action_bin="$(mktemp -d "${TMPDIR:-/tmp}/selhide-action-bin.XXXXXX")"
+action_modules="$action_state/proc_modules"
+cp -a "$MODULE_ROOT/." "$action_root/"
+mkdir -p "$action_root/payload/modules/test" "$action_root/bin"
+printf '%s\n' module > "$action_root/payload/modules/test/selhide.ko"
+action_module_sha="$(sha256sum "$action_root/payload/modules/test/selhide.ko" | awk '{print $1}')"
+printf '%s\n' \
+    '# exact_kernel_release|relative_module_path|sha256|label' \
+    "$(uname -r)|payload/modules/test/selhide.ko|$action_module_sha|action-test" \
+    > "$action_root/payload/manifest.tsv"
+: > "$action_modules"
+cat > "$action_root/bin/find_clean_sepolicy_load.sh" <<'EOF'
+#!/bin/sh
+printf '%s\n' clean-policy > "$OUT"
+printf '%s\n' selected=test > "$REPORT"
+EOF
+cat > "$action_root/bin/kallsyms_init_module" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+    --check-vermagic|--dry-run) exit 0 ;;
+esac
+printf '%s\n' 'selhide 1 0 - Live 0x0' > "$SELHIDE_PROC_MODULES"
+EOF
+cat > "$action_bin/rmmod" <<'EOF'
+#!/bin/sh
+: > "$SELHIDE_PROC_MODULES"
+EOF
+cat > "$action_bin/sleep" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 0755 "$action_root/bin/find_clean_sepolicy_load.sh" \
+    "$action_root/bin/kallsyms_init_module" "$action_bin/rmmod" "$action_bin/sleep"
+printf '%s\n' 'GUARD_SECONDS=5' 'TRIAL_SECONDS=5' > "$action_state/config.conf"
+
+run_action() {
+    SELHIDE_STATE_DIR="$action_state" \
+    SELHIDE_PROC_MODULES="$action_modules" \
+    PATH="$action_bin:$PATH" \
+        sh "$action_root/action.sh" > "$action_state/action.out" 2>&1
+}
+
+run_action || fail "first Action tap failed"
+[ -f "$action_state/trial_passed" ] || fail "first Action tap did not record trial"
+[ ! -s "$action_modules" ] || fail "first Action tap left module loaded"
+[ ! -e "$action_state/autoload" ] || fail "first Action tap enabled autoload"
+run_action || fail "second Action tap failed"
+[ -f "$action_state/autoload" ] || fail "second Action tap did not enable autoload"
+run_action || fail "third Action tap failed"
+[ ! -e "$action_state/autoload" ] || fail "third Action tap did not disable autoload"
+
+touch "$action_state/safe_mode"
+printf '%s\n' "sha256=$action_module_sha" > \
+    "$action_state/recovered_guard_20000101_000000.txt"
+if run_action; then
+    fail "Action bypassed persistent safe mode"
+fi
+grep -Fq 'BLOCKED: persistent safe mode is active.' "$action_state/action.out" ||
+    fail "Action did not explain safe-mode refusal"
+grep -Fq 'same one associated with the uncleared panic guard' "$action_state/action.out" ||
+    fail "Action did not reject the recovered artifact explicitly"
+
 if [ -n "$ZIP_PATH" ]; then
     command -v unzip >/dev/null || fail "missing dependency: unzip"
     unzip -tq "$ZIP_PATH" >/dev/null
@@ -98,3 +169,5 @@ echo "identity_root=$identity_root"
 echo "identity_state=$identity_state"
 echo "boot_root=$boot_root"
 echo "boot_state=$boot_state"
+echo "action_root=$action_root"
+echo "action_state=$action_state"
