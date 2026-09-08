@@ -8,6 +8,7 @@ out/
 .*.cmd
 .tmp_versions/
 .DS_Store
+/adb/
 artifacts/
 test_artifact_*.txt
 test_selhide_dirtysepolicy2_popsicle_*.txt

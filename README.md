@@ -62,6 +62,11 @@ is tied to hashes of the exact KO, loader and clean policy, so package or policy
 updates require another trial. See `magisk-module/README.md` for recovery and
 configuration details.
 
+The loader and package builder reject Android 6.1+ artifacts unless the module
+init and cleanup symbols carry the expected KCFI entry type IDs. This catches a
+class of otherwise fatal modules that can pass vermagic and unresolved-symbol
+checks but panic in `do_one_initcall()` before the module prints its first log.
+
 `import-denylist` currently creates apply-list metadata only. The LKM remains a
 global hook; per-app enforcement and WebUI controls are intentionally not yet
 claimed as implemented.
@@ -119,7 +124,9 @@ The KernelSU-style LKM flow is split into small reusable workflows:
   CFI-enabled DDK builds emit `__cfi_jt_init_module` and
   `__cfi_jt_cleanup_module`, matching KernelSU's LKM entry shape.
 - Local ACK / `FORCE_MAKE=1` builds whose compiler does not emit KCFI landing
-  pads must set `SELHIDE_ASM_INIT=1`; otherwise KCFI kernels can panic in
+  pads need assembly init/exit wrappers; `build_selhide_ddk.sh` now enables
+  `SELHIDE_ASM_INIT=1` automatically for local 6.x fallback builds. Direct
+  Makefile users must set it themselves, otherwise KCFI kernels can panic in
   `do_one_initcall` before `phase0 loading` is printed.
 - On-device testing is intended to use the one-click Android shell wrappers:
   `run_popsicle_local_smoke.sh` for one conservative load/probe/unload cycle,

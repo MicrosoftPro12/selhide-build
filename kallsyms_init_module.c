@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,7 +42,8 @@ static void usage(const char *argv0)
 		"\n"
 		"By default, real loads require either exact module vermagic release\n"
 		"or Android KMI-compatible modversions suffix matching. Dry-runs are\n"
-		"always allowed. Set ALLOW_UNSAFE_MODULE_LOAD=YES or pass\n"
+		"always allowed for vermagic. Android 6.1+ kernels additionally require\n"
+		"valid KCFI words before module init/exit. Set ALLOW_UNSAFE_MODULE_LOAD=YES or pass\n"
 		"--force-vermagic to override.\n",
 		argv0);
 }
@@ -248,6 +250,126 @@ static bool module_has_modversions(unsigned char *buf, size_t len)
 	       has_section(buf, len, "__version_ext_crcs");
 }
 
+#define KCFI_INIT_MODULE_TYPEID 0x6fbb3035U
+#define KCFI_CLEANUP_MODULE_TYPEID 0xe5c47d60U
+
+static bool unsafe_load_allowed(bool force_vermagic);
+
+static int symbol_prefix_u32(unsigned char *buf, size_t len, const char *needle,
+			     uint32_t *word, Elf64_Addr *value)
+{
+	Elf64_Ehdr *eh;
+	Elf64_Shdr *shdrs;
+
+	if (parse_elf_sections(buf, len, &eh, &shdrs))
+		return -1;
+
+	for (int i = 0; i < eh->e_shnum; i++) {
+		Elf64_Shdr *symsec = &shdrs[i];
+		Elf64_Shdr *strsec;
+		Elf64_Sym *syms;
+		const char *strtab;
+		size_t nsyms;
+
+		if (symsec->sh_type != SHT_SYMTAB ||
+		    symsec->sh_entsize != sizeof(Elf64_Sym) ||
+		    symsec->sh_link >= eh->e_shnum ||
+		    !valid_range(len, symsec->sh_offset, symsec->sh_size))
+			continue;
+
+		strsec = &shdrs[symsec->sh_link];
+		if (!valid_range(len, strsec->sh_offset, strsec->sh_size))
+			continue;
+		syms = (Elf64_Sym *)(buf + symsec->sh_offset);
+		nsyms = symsec->sh_size / sizeof(Elf64_Sym);
+		strtab = (const char *)(buf + strsec->sh_offset);
+
+		for (size_t j = 1; j < nsyms; j++) {
+			Elf64_Sym *sym = &syms[j];
+			Elf64_Shdr *target;
+			const char *name;
+			uint64_t prefix_off;
+			size_t left;
+
+			if (sym->st_name >= strsec->sh_size ||
+			    sym->st_shndx == SHN_UNDEF || sym->st_shndx >= eh->e_shnum)
+				continue;
+			name = strtab + sym->st_name;
+			left = strsec->sh_size - sym->st_name;
+			if (strnlen(name, left) == left || strcmp(name, needle) != 0)
+				continue;
+
+			target = &shdrs[sym->st_shndx];
+			if (sym->st_value < sizeof(*word) ||
+			    sym->st_value > target->sh_size ||
+			    target->sh_offset > UINT64_MAX -
+					(sym->st_value - sizeof(*word)))
+				return -1;
+			prefix_off = target->sh_offset + sym->st_value - sizeof(*word);
+			if (!valid_range(len, prefix_off, sizeof(*word)))
+				return -1;
+			memcpy(word, buf + prefix_off, sizeof(*word));
+			*value = sym->st_value;
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+static bool kernel_requires_kcfi_entry(const char *release)
+{
+	unsigned int major, minor;
+
+	if (!release || sscanf(release, "%u.%u", &major, &minor) != 2)
+		return false;
+	return major > 6 || (major == 6 && minor >= 1);
+}
+
+static int check_entry_cfi_guard(unsigned char *buf, size_t len,
+				 bool force_vermagic)
+{
+	char *vermagic;
+	uint32_t init_typeid = 0, exit_typeid = 0;
+	Elf64_Addr init_value = 0, exit_value = 0;
+	bool required;
+	bool valid;
+
+	vermagic = modinfo_value(buf, len, "vermagic");
+	required = kernel_requires_kcfi_entry(vermagic);
+	if (!required) {
+		fprintf(stderr, "entry_cfi_guard=not-required-for-kernel\n");
+		free(vermagic);
+		return 0;
+	}
+	free(vermagic);
+
+	valid = symbol_prefix_u32(buf, len, "init_module", &init_typeid,
+				  &init_value) == 0 &&
+		symbol_prefix_u32(buf, len, "cleanup_module", &exit_typeid,
+				  &exit_value) == 0;
+	fprintf(stderr, "init_module_value=0x%" PRIx64 "\n", (uint64_t)init_value);
+	fprintf(stderr, "init_module_kcfi=0x%08" PRIx32 "\n", init_typeid);
+	fprintf(stderr, "cleanup_module_value=0x%" PRIx64 "\n", (uint64_t)exit_value);
+	fprintf(stderr, "cleanup_module_kcfi=0x%08" PRIx32 "\n", exit_typeid);
+
+	if (valid && init_typeid == KCFI_INIT_MODULE_TYPEID &&
+	    exit_typeid == KCFI_CLEANUP_MODULE_TYPEID) {
+		fprintf(stderr, "entry_cfi_guard=valid\n");
+		return 0;
+	}
+	if (unsafe_load_allowed(force_vermagic)) {
+		fprintf(stderr, "entry_cfi_guard=override-invalid\n");
+		return 0;
+	}
+
+	fprintf(stderr,
+		"ERROR: refusing module with missing or invalid Android KCFI init/exit metadata\n"
+		"       expected init=0x%08x cleanup=0x%08x\n",
+		KCFI_INIT_MODULE_TYPEID, KCFI_CLEANUP_MODULE_TYPEID);
+	return -1;
+}
+
 static const char *vermagic_suffix(const char *vermagic)
 {
 	const char *space;
@@ -267,6 +389,15 @@ static bool vermagic_release_matches(const char *vermagic, const char *release)
 	release_len = strcspn(vermagic, " ");
 	return strlen(release) == release_len &&
 	       strncmp(vermagic, release, release_len) == 0;
+}
+
+static bool kernel_series_matches(const char *a, const char *b)
+{
+	unsigned int a_major, a_minor, b_major, b_minor;
+
+	return a && b && sscanf(a, "%u.%u", &a_major, &a_minor) == 2 &&
+		sscanf(b, "%u.%u", &b_major, &b_minor) == 2 &&
+		a_major == b_major && a_minor == b_minor;
 }
 
 static bool starts_with(const char *s, const char *prefix)
@@ -431,6 +562,7 @@ static int check_vermagic_guard(unsigned char *buf, size_t len, bool dry_run,
 	bool ref_is_user_supplied = false;
 	const char *allow_ref_mismatch;
 	bool suffix_match = false;
+	bool series_match;
 	bool has_modversions;
 
 	vermagic = modinfo_value(buf, len, "vermagic");
@@ -465,6 +597,8 @@ static int check_vermagic_guard(unsigned char *buf, size_t len, bool dry_run,
 
 	release_len = strcspn(vermagic, " ");
 	release_match = vermagic_release_matches(vermagic, uts.release);
+	series_match = kernel_series_matches(vermagic, uts.release);
+	fprintf(stderr, "kernel_series_match=%s\n", series_match ? "yes" : "no");
 
 	ref_vermagic = find_reference_vermagic(ref_path, sizeof(ref_path));
 	ref_suffix = vermagic_suffix(ref_vermagic);
@@ -498,7 +632,7 @@ static int check_vermagic_guard(unsigned char *buf, size_t len, bool dry_run,
 	}
 
 	allow_ref_mismatch = getenv("ALLOW_REFERENCE_RELEASE_MISMATCH");
-	if (!release_match && has_modversions && suffix_match &&
+	if (!release_match && series_match && has_modversions && suffix_match &&
 	    (!ref_is_user_supplied || ref_release_match ||
 	     (allow_ref_mismatch && strcmp(allow_ref_mismatch, "YES") == 0))) {
 		fprintf(stderr, "vermagic_guard=kmi-compatible-modversions\n");
@@ -756,6 +890,8 @@ int main(int argc, char **argv)
 		return 1;
 	if (check_vermagic_guard(buf, len, dry_run && !check_vermagic_only, force_vermagic))
 		return 3;
+	if (check_entry_cfi_guard(buf, len, force_vermagic))
+		return 4;
 	if (check_vermagic_only) {
 		free(params);
 		free(buf);

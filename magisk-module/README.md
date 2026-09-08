@@ -26,6 +26,10 @@ loader and clean policy. Updating any of them invalidates autoload until another
 trial passes. Watchers also carry a unique guard ID, so an older timer cannot
 clear a newer load's panic marker.
 
+On Android 6.1 and newer kernels, preflight also verifies the KCFI words before
+`init_module` and `cleanup_module`. Missing or incorrect entry metadata is
+rejected before the loader can call `init_module(2)`.
+
 ## Controller
 
 Run as root after installation:

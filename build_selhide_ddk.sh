@@ -156,9 +156,20 @@ copy_result() {
 build_with_make() {
     build_dir="$1"
     kdir="$2"
+    make_args=()
+
+    if [ -n "${SELHIDE_ASM_INIT:-}" ]; then
+        make_args+=("SELHIDE_ASM_INIT=$SELHIDE_ASM_INIT")
+    elif [[ "$KMI" == android*-6.* ]]; then
+        # Local ACK trees may use a host compiler without KCFI even when the
+        # target kernel enforces it. DDK builds stay on compiler-generated KCFI.
+        make_args+=("SELHIDE_ASM_INIT=1")
+        log "local 6.x fallback: enabling assembly KCFI init/exit wrappers"
+    fi
 
     log "building with make -C $kdir M=$build_dir"
-    make -C "$kdir" M="$build_dir" KDIR="$kdir" ARCH="$ARCH" LLVM="$LLVM" KBUILD_MODPOST_WARN=1 clean modules
+    make -C "$kdir" M="$build_dir" KDIR="$kdir" ARCH="$ARCH" LLVM="$LLVM" \
+        KBUILD_MODPOST_WARN=1 "${make_args[@]}" clean modules
 }
 
 build_with_ddk() {
