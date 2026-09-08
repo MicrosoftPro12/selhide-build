@@ -77,19 +77,6 @@ static void selhide_flush_dcache(void *addr, size_t len)
 #endif
 #endif
 
-static bool selhide_is_vmalloc_or_module_addr(unsigned long addr)
-{
-#if defined(MODULES_VADDR) && defined(MODULES_END)
-	if (addr >= MODULES_VADDR && addr < MODULES_END)
-		return true;
-#endif
-#if defined(VMALLOC_START) && defined(VMALLOC_END)
-	if (addr >= VMALLOC_START && addr < VMALLOC_END)
-		return true;
-#endif
-	return false;
-}
-
 static unsigned long selhide_phys_from_virt(unsigned long addr, int *err)
 {
 	pgd_t *pgd;
@@ -97,25 +84,14 @@ static unsigned long selhide_phys_from_virt(unsigned long addr, int *err)
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
-	struct page *page;
 
 	*err = 0;
 
 	/*
-	 * Module text lives in the module/vmalloc range. Use the kernel's own
-	 * vmalloc walker here so vendor mm_struct layout drift cannot make an
-	 * out-of-tree page-table walk dereference the wrong field.
-	 */
-	if (selhide_is_vmalloc_or_module_addr(addr)) {
-		page = vmalloc_to_page((void *)addr);
-		if (page)
-			return page_to_phys(page) + (addr & ~PAGE_MASK);
-	}
-
-	/*
-	 * Use the live kernel root page table directly instead of init_mm.
-	 * Some vendor trees drift mm_struct layout enough that mm->pgd is
-	 * not a safe dereference from an out-of-tree module.
+	 * Walk the live kernel root page table directly. Do not classify
+	 * module/vmalloc addresses with header-time MODULES_VADDR/VMALLOC_START:
+	 * non-exact vendor headers can drift from the running kernel and make us
+	 * call vmalloc_to_page() on core rodata, which triggers a WARN.
 	 */
 	pgd = swapper_pg_dir + pgd_index(addr);
 	if (pgd_none(*pgd) || pgd_bad(*pgd))

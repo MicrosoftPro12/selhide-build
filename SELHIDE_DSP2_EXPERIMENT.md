@@ -1,10 +1,10 @@
 # selhide DirtySepolicy 2.x Experiment
 
-Current validated target:
+Current validated targets:
 
-- Device: Xiaomi popsicle
-- Android: 16 / Android 16 GKI profile
-- Runtime kernel: `6.12.23-android16-5-g75e9b1c7ae7c-abogki463945075-4k`
+- Xiaomi popsicle, Android 16, kernel `6.12.23-android16-5-g75e9b1c7ae7c-abogki463945075-4k`
+- Xiaomi corot, Android 14, kernel `5.15.123-android13-8-00045-g67e07e3a663f-ab11550397`
+- Xiaomi renoir, Android 12, kernel `5.4.147-qgki-ga2bfd24da692`
 - Module version: `p0.13-dirtysepolicy2-exp`
 
 ## What The Experiment Hooks
@@ -93,3 +93,33 @@ The initial stress wrapper reported `round_exit=1` because probe helper scratch
 variables clobbered the main shell return variable. That script bug is fixed by
 using `probe_rc` and `main_rc`; the round logs themselves had already completed
 with `RESULT: PASS script completed`.
+
+## Legacy 5.x Setprocattr Notes
+
+Android 5.15 CFI kernels may store `selinux_setprocattr.cfi_jt` in the legacy
+LSM hook list instead of the raw `selinux_setprocattr` address. Corot passed a
+full DirtySepolicy 2.0 run after matching that jump-table target and restored
+all hooks on unload.
+
+Renoir's 5.4 LTO kernel gives the jump-table symbol a hash suffix:
+
+```text
+selinux_setprocattr$<hash>.cfi_jt
+```
+
+The Android runner discovers the exact name from `/proc/kallsyms` and passes it
+through the `setprocattr_cfi_symbol` module parameter.
+
+The first real hashed-symbol test panicked before any hook was installed. The
+new symbol branch had called `p_kallsyms_lookup_name` directly, causing the 5.4
+vendor CFI check to reject `kallsyms_lookup_name`. It now uses the existing
+`selhide_call_kallsyms_lookup_name` assembly trampoline. Host disassembly
+confirms the repaired branch has a direct relocation to that trampoline.
+
+`build_selhide_ddk.sh` rejects source containing a direct
+`p_kallsyms_lookup_name(...)` call so this failure mode cannot silently return.
+The repaired Renoir module passed loader preflight, a two-second hook-only run,
+and a full DirtySepolicy 2.0 run. The hashed CFI target was found as `kind=cfi_jt`,
+all three hooks were installed, the app reported `OK`, and all hooks were
+restored on unload. The tested module SHA-256 is
+`a38eda9e78bfd2880ee81d9705086249f6eafceb451acd9407e293c2103abf7f`.

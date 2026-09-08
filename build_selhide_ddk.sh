@@ -38,6 +38,15 @@ need_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+verify_source_calls() {
+    direct_calls="$(grep -nE 'p_kallsyms_lookup_name[[:space:]]*\(' \
+        "$SELHIDE_SRC"/*.c 2>/dev/null || true)"
+    if [ -n "$direct_calls" ]; then
+        printf '%s\n' "$direct_calls" >&2
+        die "direct p_kallsyms_lookup_name call bypasses the legacy CFI trampoline"
+    fi
+}
+
 find_kdir() {
     if [ -n "${KDIR:-}" ]; then
         printf '%s\n' "$KDIR"
@@ -167,6 +176,7 @@ main() {
     need_cmd make
     [ -d "$SELHIDE_SRC" ] || die "SELHIDE_SRC not found: $SELHIDE_SRC"
     [ -f "$SELHIDE_SRC/Makefile" ] || die "SELHIDE_SRC has no Makefile: $SELHIDE_SRC"
+    verify_source_calls
     print_env
 
     tmp="${TMPDIR:-/tmp}/selhide-ddk-build.$$"

@@ -23,7 +23,9 @@
 #include <linux/version.h>
 #include <linux/uaccess.h>
 #include <linux/lsm_hooks.h>
-#include <linux/utsname.h>
+#include <linux/atomic.h>
+#include <linux/sched.h>
+#include <linux/string.h>
 
 #include "include/security.h"
 #include "ss/policydb.h"
@@ -106,7 +108,9 @@ static policydb_destroy_fn p_policydb_destroy;
 static sidtab_destroy_fn p_sidtab_destroy;
 static write_op_fn *p_write_op;
 static struct lsm_static_calls_table *p_static_calls_table;
+static struct security_hook_heads *p_security_hook_heads;
 static setprocattr_fn p_selinux_setprocattr;
+static setprocattr_fn p_selinux_setprocattr_cfi_jt;
 
 static struct policydb backup_policydb;
 static struct sidtab backup_sidtab;
@@ -133,6 +137,11 @@ module_param_named(setprocattr_hook, enable_setprocattr_hook, bool, 0644);
 MODULE_PARM_DESC(setprocattr_hook,
 		 "hide dirty contexts from /proc/self/attr/current fallback; default off");
 
+static char *setprocattr_cfi_symbol;
+module_param_named(setprocattr_cfi_symbol, setprocattr_cfi_symbol, charp, 0644);
+MODULE_PARM_DESC(setprocattr_cfi_symbol,
+		 "optional exact selinux_setprocattr CFI jump-table symbol name");
+
 static char *backup_policy_path;
 module_param_named(policy_path, backup_policy_path, charp, 0644);
 MODULE_PARM_DESC(policy_path,
@@ -142,6 +151,16 @@ static bool enable_patch_self_test;
 module_param_named(patch_self_test, enable_patch_self_test, bool, 0644);
 MODULE_PARM_DESC(patch_self_test,
 		 "patch only this module's SEL_ACCESS wrapper KCFI word; default off");
+
+static bool enable_trace_queries;
+module_param_named(trace_queries, enable_trace_queries, bool, 0644);
+MODULE_PARM_DESC(trace_queries,
+		 "trace SEL_ACCESS/SEL_CONTEXT queries for diagnosis; default off");
+
+static int trace_query_limit = 32;
+module_param_named(trace_limit, trace_query_limit, int, 0644);
+MODULE_PARM_DESC(trace_limit,
+		 "number of non-dirty SELinuxfs queries to trace when trace_queries=1");
 
 #if defined(CONFIG_CFI_CLANG)
 extern ssize_t selhide_write_access_entry(struct file *file, char *buf,
@@ -222,6 +241,27 @@ static setprocattr_fn setprocattr_replacement_fn(void)
 #endif
 }
 
+static bool have_setprocattr_target(void)
+{
+	return p_selinux_setprocattr || p_selinux_setprocattr_cfi_jt;
+}
+
+static bool is_selinux_setprocattr_target(setprocattr_fn fn)
+{
+	return (p_selinux_setprocattr && fn == p_selinux_setprocattr) ||
+	       (p_selinux_setprocattr_cfi_jt &&
+		fn == p_selinux_setprocattr_cfi_jt);
+}
+
+static const char *setprocattr_target_kind(setprocattr_fn fn)
+{
+	if (p_selinux_setprocattr && fn == p_selinux_setprocattr)
+		return "raw";
+	if (p_selinux_setprocattr_cfi_jt && fn == p_selinux_setprocattr_cfi_jt)
+		return "cfi_jt";
+	return "unknown";
+}
+
 static write_op_fn *access_write_slot;
 static write_op_fn orig_access_write;
 static bool access_hooked;
@@ -283,7 +323,22 @@ static int resolve_syms(void)
 	LOOKUP(p_policydb_load_isids, "policydb_load_isids");
 	LOOKUP(p_sidtab_init, "sidtab_init");
 	LOOKUP_OPT(p_static_calls_table, "static_calls_table");
+	LOOKUP_OPT(p_security_hook_heads, "security_hook_heads");
 	LOOKUP_OPT(p_selinux_setprocattr, "selinux_setprocattr");
+	LOOKUP_OPT(p_selinux_setprocattr_cfi_jt, "selinux_setprocattr.cfi_jt");
+	if (!p_selinux_setprocattr_cfi_jt && setprocattr_cfi_symbol &&
+	    setprocattr_cfi_symbol[0]) {
+		unsigned long addr = selhide_lookup_symbol(setprocattr_cfi_symbol);
+
+		if (addr) {
+			p_selinux_setprocattr_cfi_jt = (setprocattr_fn)addr;
+			pr_info(SELHIDE_TAG "resolved %s as selinux_setprocattr.cfi_jt\n",
+				setprocattr_cfi_symbol);
+		} else {
+			pr_warn(SELHIDE_TAG "missing optional %s\n",
+				setprocattr_cfi_symbol);
+		}
+	}
 	LOOKUP_OPT(p_string_to_context_struct, "string_to_context_struct");
 	LOOKUP_OPT(p_sidtab_context_to_sid, "sidtab_context_to_sid");
 	LOOKUP_OPT(p_context_struct_compute_av, "context_struct_compute_av");
@@ -303,18 +358,15 @@ static int resolve_syms(void)
 		pr_err(SELHIDE_TAG "setprocattr_hook requires clean_access=1\n");
 		return -EINVAL;
 	}
-#if SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS
-	if (enable_setprocattr_hook &&
-	    (!p_static_calls_table || !p_selinux_setprocattr)) {
-		pr_err(SELHIDE_TAG "setprocattr_hook requested but LSM symbols are missing\n");
+	if (enable_setprocattr_hook && !have_setprocattr_target()) {
+		pr_err(SELHIDE_TAG "setprocattr_hook requested but selinux_setprocattr is missing\n");
 		return -ENOENT;
 	}
-#else
-	if (enable_setprocattr_hook) {
-		pr_err(SELHIDE_TAG "setprocattr_hook is not supported on this kernel\n");
+	if (enable_setprocattr_hook &&
+	    !p_static_calls_table && !p_security_hook_heads) {
+		pr_err(SELHIDE_TAG "setprocattr_hook requested but LSM hook tables are missing\n");
 		return -EOPNOTSUPP;
 	}
-#endif
 	return 0;
 }
 
@@ -601,6 +653,109 @@ static ssize_t check_original_access(struct file *file, char *buf, size_t size)
 	return ret;
 }
 
+#define SELHIDE_TRACE_QUERY_MAX 192
+
+static atomic_t trace_access_seen = ATOMIC_INIT(0);
+static atomic_t trace_context_seen = ATOMIC_INIT(0);
+static atomic_t trace_setprocattr_seen = ATOMIC_INIT(0);
+
+static char *trace_copy_query(const void *buf, size_t size, size_t *out_len)
+{
+	size_t len;
+	char *query;
+
+	if (!enable_trace_queries || !buf || !size)
+		return NULL;
+
+	len = min_t(size_t, size, SELHIDE_TRACE_QUERY_MAX);
+	query = kmemdup_nul(buf, len, GFP_KERNEL);
+	if (!query)
+		return NULL;
+
+	if (out_len)
+		*out_len = strnlen(query, len);
+	return query;
+}
+
+static bool trace_query_is_dirty(const char *query, size_t len)
+{
+	return strnstr(query, "magisk", len) ||
+	       strnstr(query, "lsposed", len) ||
+	       strnstr(query, "ksu", len) ||
+	       strnstr(query, "xposed", len) ||
+	       strnstr(query, "zygisk", len) ||
+	       strnstr(query, "adbroot", len);
+}
+
+static bool trace_query_should_log(atomic_t *seen, bool dirty)
+{
+	int n;
+
+	if (!enable_trace_queries)
+		return false;
+	if (dirty)
+		return true;
+	if (trace_query_limit <= 0)
+		return false;
+
+	n = atomic_inc_return(seen);
+	return n <= trace_query_limit;
+}
+
+static void trace_access_query(const char *stage, const char *query,
+			       size_t query_len, ssize_t ret, u16 tclass,
+			       const struct av_decision *avd)
+{
+	bool dirty;
+
+	if (!query)
+		return;
+
+	dirty = trace_query_is_dirty(query, query_len);
+	if (!trace_query_should_log(&trace_access_seen, dirty))
+		return;
+
+	pr_info(SELHIDE_TAG "trace access[%s] pid=%d comm=%s ret=%zd tclass=%u allowed=0x%x flags=0x%x dirty=%d query=\"%.*s\"\n",
+		stage, current->pid, current->comm, ret, tclass,
+		avd ? avd->allowed : 0, avd ? avd->flags : 0, dirty,
+		(int)query_len, query);
+}
+
+static void trace_context_query(const char *stage, const char *query,
+				size_t query_len, ssize_t ret, u32 sid)
+{
+	bool dirty;
+
+	if (!query)
+		return;
+
+	dirty = trace_query_is_dirty(query, query_len);
+	if (!trace_query_should_log(&trace_context_seen, dirty))
+		return;
+
+	pr_info(SELHIDE_TAG "trace context[%s] pid=%d comm=%s ret=%zd sid=%u dirty=%d query=\"%.*s\"\n",
+		stage, current->pid, current->comm, ret, sid, dirty,
+		(int)query_len, query);
+}
+
+static void trace_setprocattr_query(const char *stage, const char *name,
+				    const char *query, size_t query_len,
+				    int ret, int clean_ret, u32 sid)
+{
+	bool dirty;
+
+	if (!query)
+		return;
+
+	dirty = trace_query_is_dirty(query, query_len);
+	if (!trace_query_should_log(&trace_setprocattr_seen, dirty))
+		return;
+
+	pr_info(SELHIDE_TAG "trace setprocattr[%s] pid=%d comm=%s name=%s ret=%d clean_ret=%d sid=%u dirty=%d query=\"%.*s\"\n",
+		stage, current->pid, current->comm, name ? name : "?",
+		ret, clean_ret, sid, dirty, (int)query_len, query);
+}
+
 static int read_kcfi_typeid(void *fn, u32 *typeid)
 {
 	if (!fn)
@@ -624,19 +779,54 @@ static void log_kcfi_typeid(const char *name, void *fn)
 			typeid);
 }
 
+static bool read_setprocattr_target_typeid(u32 *typeid)
+{
+	if (p_selinux_setprocattr &&
+	    read_kcfi_typeid((void *)p_selinux_setprocattr, typeid) == 0)
+		return true;
+	if (p_selinux_setprocattr_cfi_jt &&
+	    read_kcfi_typeid((void *)p_selinux_setprocattr_cfi_jt,
+			     typeid) == 0)
+		return true;
+	return false;
+}
+
+static bool match_setprocattr_candidate(setprocattr_fn fn,
+					bool have_target_typeid,
+					u32 target_typeid,
+					const char **kind)
+{
+	u32 candidate_typeid = 0;
+
+	if (is_selinux_setprocattr_target(fn)) {
+		*kind = setprocattr_target_kind(fn);
+		return true;
+	}
+
+	if (!have_target_typeid || !fn)
+		return false;
+	if (read_kcfi_typeid((void *)fn, &candidate_typeid) ||
+	    candidate_typeid != target_typeid)
+		return false;
+
+	*kind = "kcfi_typeid";
+	return true;
+}
+
 static void probe_kcfi_targets(void)
 {
-	unsigned long setprocattr;
-
 	pr_info(SELHIDE_TAG "write_op[] at %p\n", p_write_op);
 	log_kcfi_typeid("write_op[SEL_CONTEXT]", p_write_op[SEL_CONTEXT]);
 	log_kcfi_typeid("write_op[SEL_ACCESS]", p_write_op[SEL_ACCESS]);
 
-	setprocattr = (unsigned long)p_selinux_setprocattr;
-	if (setprocattr)
-		log_kcfi_typeid("selinux_setprocattr", (void *)setprocattr);
+	if (p_selinux_setprocattr)
+		log_kcfi_typeid("selinux_setprocattr",
+				(void *)p_selinux_setprocattr);
 	else
 		pr_warn(SELHIDE_TAG "selinux_setprocattr not found\n");
+	if (p_selinux_setprocattr_cfi_jt)
+		log_kcfi_typeid("selinux_setprocattr.cfi_jt",
+				(void *)p_selinux_setprocattr_cfi_jt);
 }
 
 ssize_t selhide_write_access_impl(struct file *file, char *buf, size_t size)
@@ -645,23 +835,35 @@ ssize_t selhide_write_access_impl(struct file *file, char *buf, size_t size)
 	static bool logged_clean;
 	static bool logged_fallback;
 	struct av_decision avd;
+	char *query = NULL;
+	size_t query_len = 0;
 	ssize_t length;
 	u16 tclass = 0;
 
 	if (unlikely(!orig_access_write))
 		return -EIO;
 
+	query = trace_copy_query(buf, size, &query_len);
+
 	if (!enable_clean_access) {
 		if (!logged_passthrough) {
 			logged_passthrough = true;
 			pr_info(SELHIDE_TAG "SEL_ACCESS passthrough hit\n");
 		}
-		return selhide_call_write_op(orig_access_write, file, buf, size);
+		length = selhide_call_write_op(orig_access_write, file, buf, size);
+		trace_access_query("passthrough", query, query_len, length, 0,
+				   NULL);
+		kfree(query);
+		return length;
 	}
 
 	length = check_original_access(file, buf, size);
-	if (length < 0)
+	if (length < 0) {
+		trace_access_query("original-denied", query, query_len, length,
+				   0, NULL);
+		kfree(query);
 		return length;
+	}
 
 	length = compute_clean_access_response(buf, size, &avd, &tclass);
 	if (length == -EAGAIN) {
@@ -669,7 +871,11 @@ ssize_t selhide_write_access_impl(struct file *file, char *buf, size_t size)
 			logged_fallback = true;
 			pr_warn(SELHIDE_TAG "clean_access unavailable, falling back to original\n");
 		}
-		return selhide_call_write_op(orig_access_write, file, buf, size);
+		length = selhide_call_write_op(orig_access_write, file, buf, size);
+		trace_access_query("fallback-original", query, query_len,
+				   length, 0, NULL);
+		kfree(query);
+		return length;
 	}
 
 	if (length >= 0 && !logged_clean) {
@@ -679,6 +885,10 @@ ssize_t selhide_write_access_impl(struct file *file, char *buf, size_t size)
 			tclass, avd.allowed, avd.flags);
 	}
 
+	trace_access_query(length >= 0 ? "clean" : "clean-error", query,
+			   query_len, length, tclass,
+			   length >= 0 ? &avd : NULL);
+	kfree(query);
 	return length;
 }
 
@@ -688,18 +898,26 @@ ssize_t selhide_write_context_impl(struct file *file, char *buf, size_t size)
 	static bool logged_clean;
 	static bool logged_hidden;
 	static bool logged_fallback;
+	char *query = NULL;
+	size_t query_len = 0;
 	ssize_t length;
 	u32 sid = 0;
 
 	if (unlikely(!orig_context_write))
 		return -EIO;
 
+	query = trace_copy_query(buf, size, &query_len);
+
 	if (!enable_context_hook || !enable_clean_access) {
 		if (!logged_passthrough) {
 			logged_passthrough = true;
 			pr_info(SELHIDE_TAG "SEL_CONTEXT passthrough hit\n");
 		}
-		return selhide_call_write_op(orig_context_write, file, buf, size);
+		length = selhide_call_write_op(orig_context_write, file, buf,
+					       size);
+		trace_context_query("passthrough", query, query_len, length, 0);
+		kfree(query);
+		return length;
 	}
 
 	length = lookup_clean_context(buf, size, &sid);
@@ -708,7 +926,12 @@ ssize_t selhide_write_context_impl(struct file *file, char *buf, size_t size)
 			logged_fallback = true;
 			pr_warn(SELHIDE_TAG "clean_context unavailable, falling back to original\n");
 		}
-		return selhide_call_write_op(orig_context_write, file, buf, size);
+		length = selhide_call_write_op(orig_context_write, file, buf,
+					       size);
+		trace_context_query("fallback-original", query, query_len,
+				    length, 0);
+		kfree(query);
+		return length;
 	}
 	if (length < 0) {
 		if (!logged_hidden) {
@@ -716,6 +939,8 @@ ssize_t selhide_write_context_impl(struct file *file, char *buf, size_t size)
 			pr_info(SELHIDE_TAG "SEL_CONTEXT hidden dirty context -> %zd\n",
 				length);
 		}
+		trace_context_query("hidden", query, query_len, length, 0);
+		kfree(query);
 		return length;
 	}
 
@@ -729,13 +954,18 @@ ssize_t selhide_write_context_impl(struct file *file, char *buf, size_t size)
 	 * Clean policy decides existence. Original handler still enforces the
 	 * caller's check_context permission and canonicalizes the response.
 	 */
-	return selhide_call_write_op(orig_context_write, file, buf, size);
+	length = selhide_call_write_op(orig_context_write, file, buf, size);
+	trace_context_query("clean", query, query_len, length, sid);
+	kfree(query);
+	return length;
 }
 
 int selhide_setprocattr_impl(const char *name, void *value, size_t size)
 {
 	static bool logged_hidden;
 	static bool logged_passthrough;
+	char *query = NULL;
+	size_t query_len = 0;
 	int ret;
 	int clean_ret;
 	u32 sid = 0;
@@ -743,33 +973,60 @@ int selhide_setprocattr_impl(const char *name, void *value, size_t size)
 	if (unlikely(!orig_setprocattr))
 		return -EIO;
 
+	query = trace_copy_query(value, size, &query_len);
 	ret = selhide_call_setprocattr(orig_setprocattr, name, value, size);
-	if (!enable_setprocattr_hook || !enable_clean_access)
+	if (!enable_setprocattr_hook || !enable_clean_access) {
+		trace_setprocattr_query("disabled", name, query, query_len, ret,
+					0, 0);
+		kfree(query);
 		return ret;
-	if (ret != -EPERM)
+	}
+	if (ret != -EPERM) {
+		trace_setprocattr_query("original", name, query, query_len, ret,
+					0, 0);
+		kfree(query);
 		return ret;
-	if (!name || strcmp(name, "current") != 0 || !value || !size)
+	}
+	if (!name || strcmp(name, "current") != 0 || !value || !size) {
+		trace_setprocattr_query("ignored", name, query, query_len, ret,
+					0, 0);
+		kfree(query);
 		return ret;
+	}
 
 	clean_ret = lookup_clean_context(value, size, &sid);
-	if (clean_ret == -EAGAIN)
+	if (clean_ret == -EAGAIN) {
+		trace_setprocattr_query("fallback-original", name, query,
+					query_len, ret, clean_ret, sid);
+		kfree(query);
 		return ret;
+	}
 	if (clean_ret == 0) {
 		if (!logged_passthrough) {
 			logged_passthrough = true;
 			pr_info(SELHIDE_TAG "setprocattr current clean context preserved sid=%u\n",
 				sid);
 		}
+		trace_setprocattr_query("clean", name, query, query_len, ret,
+					clean_ret, sid);
+		kfree(query);
 		return ret;
 	}
-	if (clean_ret == -ENOMEM)
+	if (clean_ret == -ENOMEM) {
+		trace_setprocattr_query("nomem", name, query, query_len, ret,
+					clean_ret, sid);
+		kfree(query);
 		return ret;
+	}
 
 	if (!logged_hidden) {
 		logged_hidden = true;
 		pr_info(SELHIDE_TAG "setprocattr current hidden dirty context -> EINVAL (clean_ret=%d)\n",
 			clean_ret);
 	}
+	trace_setprocattr_query("hidden", name, query, query_len, -EINVAL,
+				clean_ret, sid);
+	kfree(query);
 	return -EINVAL;
 }
 
@@ -1041,29 +1298,34 @@ static void remove_context_hook(void)
 #if SELHIDE_HAVE_SETPROCATTR_STATIC_CALLS
 static int prepare_setprocattr_target(void)
 {
+	bool have_target_typeid;
+	u32 target_typeid = 0;
 	int i;
 
-	if (!p_static_calls_table || !p_selinux_setprocattr)
+	if (!p_static_calls_table || !have_setprocattr_target())
 		return -ENOENT;
 
+	have_target_typeid = read_setprocattr_target_typeid(&target_typeid);
 	for (i = 0; i < MAX_LSM_COUNT; i++) {
 		struct lsm_static_call *scall =
 			&p_static_calls_table->setprocattr[i];
 		struct security_hook_list *hl = READ_ONCE(scall->hl);
 		setprocattr_fn *slot;
 		setprocattr_fn fn;
+		const char *kind;
 
 		if (!hl)
 			continue;
 		slot = &hl->hook.setprocattr;
 		fn = READ_ONCE(*slot);
-		if (fn != p_selinux_setprocattr)
+		if (!match_setprocattr_candidate(fn, have_target_typeid,
+						 target_typeid, &kind))
 			continue;
 
 		setprocattr_slot = slot;
 		orig_setprocattr = fn;
-		pr_info(SELHIDE_TAG "found SELinux setprocattr hook slot=%p fn=%pS lsm=%s\n",
-			setprocattr_slot, orig_setprocattr,
+		pr_info(SELHIDE_TAG "found SELinux setprocattr hook slot=%p fn=%pS kind=%s lsm=%s\n",
+			setprocattr_slot, orig_setprocattr, kind,
 			hl->lsmid ? hl->lsmid->name : "?");
 		return 0;
 	}
@@ -1072,10 +1334,99 @@ static int prepare_setprocattr_target(void)
 	return -ENOENT;
 }
 #else
+static int find_legacy_setprocattr_by_scan(void)
+{
+	const unsigned int head_limit = 320;
+	const unsigned int node_limit = 24;
+	const long window = 160;
+	unsigned long base = (unsigned long)p_security_hook_heads;
+	bool have_target_typeid;
+	u32 target_typeid = 0;
+	unsigned int i;
+
+	if (!base || !have_setprocattr_target())
+		return -ENOENT;
+
+	have_target_typeid = read_setprocattr_target_typeid(&target_typeid);
+	for (i = 0; i < head_limit; i++) {
+		unsigned long head = base + i * sizeof(unsigned long);
+		unsigned long node = 0;
+		unsigned int depth;
+
+		if (selhide_read_kernel_nofault(&node, (void *)head,
+						sizeof(node)) || !node)
+			continue;
+
+		for (depth = 0; depth < node_limit && node; depth++) {
+			long off;
+			unsigned long next = 0;
+
+			for (off = -window; off <= window;
+			     off += (long)sizeof(unsigned long)) {
+				unsigned long addr = node + off;
+				unsigned long val = 0;
+				const char *kind;
+
+				if (selhide_read_kernel_nofault(&val,
+								(void *)addr,
+								sizeof(val)))
+					continue;
+				if (!match_setprocattr_candidate(
+						(setprocattr_fn)val,
+						have_target_typeid,
+						target_typeid, &kind))
+					continue;
+
+				setprocattr_slot = (setprocattr_fn *)addr;
+				orig_setprocattr = (setprocattr_fn)val;
+				pr_info(SELHIDE_TAG "found scanned SELinux setprocattr hook slot=%p fn=%pS kind=%s head_idx=%u depth=%u node=%px off=%ld\n",
+					setprocattr_slot, orig_setprocattr,
+					kind, i, depth, (void *)node, off);
+				return 0;
+			}
+
+			if (selhide_read_kernel_nofault(&next, (void *)node,
+							sizeof(next)))
+				break;
+			node = next;
+		}
+	}
+
+	return -ENOENT;
+}
+
 static int prepare_setprocattr_target(void)
 {
-	pr_info(SELHIDE_TAG "setprocattr hook disabled on this kernel family\n");
-	return -EOPNOTSUPP;
+	struct security_hook_list *hl;
+	bool have_target_typeid;
+	u32 target_typeid = 0;
+	int ret;
+
+	if (!p_security_hook_heads || !have_setprocattr_target())
+		return -ENOENT;
+
+	have_target_typeid = read_setprocattr_target_typeid(&target_typeid);
+	hlist_for_each_entry(hl, &p_security_hook_heads->setprocattr, list) {
+		setprocattr_fn *slot = &hl->hook.setprocattr;
+		setprocattr_fn fn = READ_ONCE(*slot);
+		const char *kind;
+
+		if (!match_setprocattr_candidate(fn, have_target_typeid,
+						 target_typeid, &kind))
+			continue;
+
+		setprocattr_slot = slot;
+		orig_setprocattr = fn;
+		pr_info(SELHIDE_TAG "found legacy SELinux setprocattr hook slot=%p fn=%pS kind=%s lsm=%s\n",
+			setprocattr_slot, orig_setprocattr, kind,
+			hl->lsm ? hl->lsm : "?");
+		return 0;
+	}
+
+	ret = find_legacy_setprocattr_by_scan();
+	if (ret)
+		pr_err(SELHIDE_TAG "legacy SELinux setprocattr hook slot not found\n");
+	return ret;
 }
 #endif
 
@@ -1159,8 +1510,7 @@ static void remove_setprocattr_hook(void)
 int __init selhide_real_init(void)
 {
 	int ret;
-	pr_info(SELHIDE_TAG "phase0 loading (runtime=%s built_lvc=%u.%u.%u code=%d)\n",
-		utsname()->release,
+	pr_info(SELHIDE_TAG "phase0 loading (built_lvc=%u.%u.%u code=%d)\n",
 		(unsigned int)LINUX_VERSION_MAJOR,
 		(unsigned int)LINUX_VERSION_PATCHLEVEL,
 		(unsigned int)LINUX_VERSION_SUBLEVEL,
