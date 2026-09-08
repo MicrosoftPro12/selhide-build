@@ -143,11 +143,11 @@ jobs:
             modinfo "$ko" || true
             strings "$ko" | grep -E '^(version|vermagic|parm|parmtype)=' || true
             readelf -sW "$ko" > "${ko}.symbols.txt"
-            grep -E ' init_module$| cleanup_module$|__cfi_jt_init_module|__cfi_jt_cleanup_module|__cfi_check' \
+            grep -E ' init_module$| cleanup_module$|(__cfi_jt_init_module|init_module\.cfi_jt)$|(__cfi_jt_cleanup_module|cleanup_module\.cfi_jt)$|__cfi_check' \
               "${ko}.symbols.txt" || true
             if grep -q ' __cfi_check$' "${ko}.symbols.txt"; then
-              grep -q ' __cfi_jt_init_module$' "${ko}.symbols.txt"
-              grep -q ' __cfi_jt_cleanup_module$' "${ko}.symbols.txt"
+              grep -Eq ' (__cfi_jt_init_module|init_module\.cfi_jt)$' "${ko}.symbols.txt"
+              grep -Eq ' (__cfi_jt_cleanup_module|cleanup_module\.cfi_jt)$' "${ko}.symbols.txt"
             fi
             readelf -SW "$ko" | grep -E '(__versions|\.BTF)' || true
             if readelf -SW "$ko" | grep -qE '\.BTF'; then
