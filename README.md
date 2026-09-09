@@ -62,6 +62,10 @@ Package-to-appId resolution retries through Android's `pm` frontend when the
 lower-level `cmd package` query is unavailable, and records both failures when
 the Package Manager is not ready.
 
+A persisted pass-through preference no longer sends `clean_access=0` into
+module initialization. SelHide initializes its clean-policy hooks first, then
+switches the live parameter to pass-through and verifies the resulting state.
+
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight
 /data/adb/modules/selhide/bin/selhide_ctl.sh trial 60

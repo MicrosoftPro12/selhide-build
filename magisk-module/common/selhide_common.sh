@@ -732,14 +732,14 @@ load_guarded() {
     arm_panic_guard "$mode" || return 41
     guard_id="$ARMED_GUARD_ID"
 
-    clean_access_value=1
+    start_passthrough=0
     if [ "$mode" != "trial" ] && [ -f "$HIDING_PAUSED_FILE" ]; then
-        clean_access_value=0
+        start_passthrough=1
     fi
 
     set -- \
         access_hook=1 \
-        "clean_access=$clean_access_value" \
+        clean_access=1 \
         context_hook=1 \
         setprocattr_hook=1 \
         "trace_queries=$TRACE_QUERIES" \
@@ -759,6 +759,18 @@ load_guarded() {
         clear_panic_guard
         write_status error "load-rc-$rc"
         return "$rc"
+    fi
+
+    if [ "$start_passthrough" -eq 1 ]; then
+        set_runtime_hiding 0 >/dev/null 2>&1
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+            log_msg "load failed: could not enter requested passthrough mode rc=$rc"
+            unload_module >/dev/null 2>&1 || true
+            write_status error "passthrough-rc-$rc"
+            return "$rc"
+        fi
+        log_msg "load entered requested passthrough mode after active initialization"
     fi
 
     write_status loaded-guarded "$mode"

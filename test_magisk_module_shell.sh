@@ -101,6 +101,7 @@ action_param="$action_state/clean_access"
 action_apply_param="$action_state/apply_appids"
 action_filter_param="$action_state/apply_filter"
 action_cmd_fail="$action_state/cmd.fail"
+action_loader_args="$action_state/loader.args"
 cp -a "$MODULE_ROOT/." "$action_root/"
 mkdir -p "$action_root/payload/modules/test" "$action_root/bin"
 printf '%s\n' module > "$action_root/payload/modules/test/selhide.ko"
@@ -123,6 +124,7 @@ cat > "$action_root/bin/kallsyms_init_module" <<'EOF'
 case "${1:-}" in
     --check-vermagic|--dry-run) exit 0 ;;
 esac
+printf '%s\n' "$*" > "${SELHIDE_LOADER_ARGS_FILE:?}"
 printf '%s\n' 'selhide 1 0 - Live 0x0' > "$SELHIDE_PROC_MODULES"
 for argument in "$@"; do
     case "$argument" in
@@ -198,6 +200,7 @@ run_action() {
     SELHIDE_APPLY_FILTER_PARAM="$action_filter_param" \
     SELHIDE_CMD_FAIL_FILE="$action_cmd_fail" \
     SELHIDE_CMD_REQUIRE_PIPE=1 \
+    SELHIDE_LOADER_ARGS_FILE="$action_loader_args" \
     SELHIDE_ACTION_KEY_FILE="$action_state/action.key" \
     PATH="$action_bin:$PATH" \
         sh "$action_root/action.sh" > "$action_state/action.out" 2>&1
@@ -211,6 +214,7 @@ run_ctl() {
     SELHIDE_APPLY_FILTER_PARAM="$action_filter_param" \
     SELHIDE_CMD_FAIL_FILE="$action_cmd_fail" \
     SELHIDE_CMD_REQUIRE_PIPE=1 \
+    SELHIDE_LOADER_ARGS_FILE="$action_loader_args" \
     PATH="$action_bin:$PATH" \
         sh "$action_root/bin/selhide_ctl.sh" "$@"
 }
@@ -239,6 +243,17 @@ case "$(cat "$action_filter_param")" in
     1|Y|y) ;;
     *) fail "trial did not enable apply-list filtering" ;;
 esac
+
+# A persisted pause must not initialize context/setprocattr hooks with
+# clean_access=0. Initialize active, then switch the live parameter and verify.
+run_ctl hiding-off >/dev/null || fail "could not persist pre-load passthrough"
+run_ctl load >/dev/null || fail "paused guarded load failed"
+grep -Eq '(^| )clean_access=1( |$)' "$action_loader_args" ||
+    fail "paused load initialized the module without clean_access=1"
+[ "$(cat "$action_param")" = 0 ] ||
+    fail "paused load did not switch the live parameter to passthrough"
+run_ctl unload >/dev/null || fail "could not unload paused-mode test module"
+run_ctl hiding-on >/dev/null || fail "could not restore active preference"
 
 # Sync mode mirrors Magisk and rejects edits. Manual mode starts from a fresh
 # snapshot and applies add/remove operations to a loaded module immediately.
