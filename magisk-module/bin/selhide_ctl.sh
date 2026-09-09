@@ -67,6 +67,7 @@ show_web_status() {
     echo "safe_mode=$([ -f "$SAFE_MODE_FILE" ] && echo 1 || echo 0)"
     echo "panic_guard=$([ -f "$GUARD_FILE" ] && echo 1 || echo 0)"
     echo "trial_current=$(trial_matches_current && echo 1 || echo 0)"
+    echo "trial_seconds=$TRIAL_SECONDS"
     echo "module_disabled=$([ -f "$MODDIR/disable" ] && echo 1 || echo 0)"
     echo "apply_mode=$(apply_list_mode)"
     echo "apply_packages=$(apply_packages_csv)"

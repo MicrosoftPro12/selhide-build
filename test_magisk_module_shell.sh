@@ -192,6 +192,15 @@ run_ctl() {
         sh "$action_root/bin/selhide_ctl.sh" "$@"
 }
 
+if run_ctl enable-autoload > "$action_state/autoload-error.out" 2>&1; then
+    fail "autoload was enabled before a guarded trial"
+fi
+grep -Fq 'have not passed a guarded trial' "$action_state/autoload-error.out" ||
+    fail "autoload refusal did not explain error 60"
+pretrial_web_status="$(run_ctl web-status)"
+printf '%s\n' "$pretrial_web_status" | grep -Fx 'trial_seconds=5' >/dev/null ||
+    fail "WebUI status missed configured trial duration"
+
 run_action up || fail "first Action trial failed"
 [ -f "$action_state/trial_passed" ] || fail "first Action tap did not record trial"
 [ ! -s "$action_modules" ] || fail "first Action tap left module loaded"
@@ -276,6 +285,13 @@ if [ -n "$ZIP_PATH" ]; then
             fail "ZIP is missing $entry"
     done
 fi
+
+grep -Fq '"trial",' "$MODULE_ROOT/webroot/app.js" ||
+    fail "WebUI command allowlist is missing guarded trial"
+grep -Fq 'navigator?.languages' "$MODULE_ROOT/webroot/app.js" ||
+    fail "WebUI does not inspect the system language"
+grep -Fq 'id="language-toggle"' "$MODULE_ROOT/webroot/index.html" ||
+    fail "WebUI language control is missing"
 
 echo "PASS: Magisk module shell safety checks"
 echo "test_root=$test_root"

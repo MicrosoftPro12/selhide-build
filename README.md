@@ -50,6 +50,15 @@ panel uses the KernelSU-compatible root command bridge as the primary control
 path; WebUI X provides the same bridge for Magisk. A timeout-bounded volume-key
 Action remains the fallback. The root controller is also available directly:
 
+After any KO, loader, or clean-policy change, the WebUI Autoload control first
+runs the guarded trial. A successful trial must finish and unload before the
+next press can enable boot loading. Controller error 60 means the current
+identity has not passed that trial and `/data/adb/selhide/autoload` was
+intentionally not created.
+
+The WebUI follows the host WebView's system language on first launch and
+supports a persistent English / Simplified Chinese switch in the header.
+
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight
 /data/adb/modules/selhide/bin/selhide_ctl.sh trial 60

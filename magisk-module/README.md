@@ -6,6 +6,17 @@ panel is the primary interface in KernelSU Manager or a compatible Magisk host
 such as WebUI X. It reads live state through the host's root command bridge and
 does not run a separate receiver daemon.
 
+The WebUI Autoload control is deliberately two-stage after a KO, loader, or
+clean-policy change. Its first press starts the guarded trial; open
+DirtySepolicy while that command is running. After the trial unloads
+successfully, press Autoload again to create the boot marker. Error code 60
+means this exact runtime identity has not completed that trial, so no autoload
+marker was written.
+
+On first launch, the WebUI selects English or Simplified Chinese from the
+system WebView language. The header switch stores an explicit user choice when
+the host permits WebView local storage.
+
 The Magisk Action remains a volume-key fallback:
 
 1. Before validation, press Volume Up to run preflight and a timed guarded

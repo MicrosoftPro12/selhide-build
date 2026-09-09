@@ -12,77 +12,79 @@
   <div class="grain" aria-hidden="true"></div>
   <main class="shell">
     <header class="masthead reveal">
-      <p class="eyebrow">SELINUX POLICY LENS</p>
-      <h1>SelHide<br><span>Control Room</span></h1>
-      <p class="lede">Keep the kernel module attached. Switch its policy view without a reload.</p>
+      <button id="language-toggle" class="language-toggle" type="button"
+              aria-label="Switch language">中文</button>
+      <p class="eyebrow" data-i18n="eyebrow">SELINUX POLICY LENS</p>
+      <h1>SelHide<br><span data-i18n="controlRoom">Control Room</span></h1>
+      <p class="lede" data-i18n="lede">Keep the kernel module attached. Switch its policy view without a reload.</p>
     </header>
 
     <section id="mode-card" class="mode-card reveal delay-1" aria-live="polite">
       <div class="mode-orbit" aria-hidden="true"><span></span></div>
       <div>
-        <p class="label">Runtime mode</p>
-        <h2 id="mode-title">Connecting</h2>
-        <p id="mode-copy">Waiting for the root command bridge.</p>
+        <p class="label" data-i18n="runtimeMode">Runtime mode</p>
+        <h2 id="mode-title" data-i18n="connecting">Connecting</h2>
+        <p id="mode-copy" data-i18n="waitingBridge">Waiting for the root command bridge.</p>
       </div>
     </section>
 
-    <section class="metrics reveal delay-2" aria-label="SelHide status">
-      <article><span>MODULE</span><strong id="module-state">...</strong></article>
-      <article><span>AUTOLOAD</span><strong id="autoload-state">...</strong></article>
-      <article><span>TRIAL</span><strong id="trial-state">...</strong></article>
-      <article><span>GUARD</span><strong id="guard-state">...</strong></article>
+    <section class="metrics reveal delay-2" aria-label="SelHide status" data-i18n-aria-label="statusLabel">
+      <article><span data-i18n="metricModule">MODULE</span><strong id="module-state">...</strong></article>
+      <article><span data-i18n="metricAutoload">AUTOLOAD</span><strong id="autoload-state">...</strong></article>
+      <article><span data-i18n="metricTrial">TRIAL</span><strong id="trial-state">...</strong></article>
+      <article><span data-i18n="metricGuard">GUARD</span><strong id="guard-state">...</strong></article>
     </section>
 
     <section class="apply-panel reveal delay-3" aria-labelledby="apply-title">
       <div class="apply-head">
         <div>
-          <p class="label">Application scope</p>
-          <h2 id="apply-title">Magisk denylist</h2>
+          <p class="label" data-i18n="applicationScope">Application scope</p>
+          <h2 id="apply-title" data-i18n="magiskDenylist">Magisk denylist</h2>
         </div>
         <strong id="apply-mode" class="mode-chip">...</strong>
       </div>
-      <p id="apply-copy" class="apply-copy">Reading the selected package set.</p>
+      <p id="apply-copy" class="apply-copy" data-i18n="readingSet">Reading the selected package set.</p>
       <div id="apply-entries" class="apply-entries" aria-live="polite"></div>
       <form id="apply-form" class="apply-form">
-        <label for="package-input">Package name</label>
+        <label for="package-input" data-i18n="packageName">Package name</label>
         <div>
           <input id="package-input" name="package" type="text" inputmode="text" disabled
                  autocomplete="off" autocapitalize="none" spellcheck="false"
-                 placeholder="com.example.app">
-          <button id="apply-add" type="submit" disabled>Add</button>
+                 placeholder="com.example.app" data-i18n-placeholder="packagePlaceholder">
+          <button id="apply-add" type="submit" disabled data-i18n="add">Add</button>
         </div>
       </form>
       <div class="apply-actions">
-        <button id="apply-mode-toggle" type="button" disabled>Switch list mode</button>
-        <button id="apply-sync" type="button" disabled>Sync now</button>
-        <button id="apply-clear" type="button" disabled>Clear manual list</button>
+        <button id="apply-mode-toggle" type="button" disabled data-i18n="switchListMode">Switch list mode</button>
+        <button id="apply-sync" type="button" disabled data-i18n="syncNow">Sync now</button>
+        <button id="apply-clear" type="button" disabled data-i18n="clearManual">Clear manual list</button>
       </div>
-      <p class="scope-note">Filtering uses Android appId. It spans users, and packages sharing one UID are selected together.</p>
+      <p class="scope-note" data-i18n="scopeNote">Filtering uses Android appId. It spans users, and packages sharing one UID are selected together.</p>
     </section>
 
     <section class="controls reveal delay-4">
       <button id="toggle-hiding" class="primary" type="button" disabled>
         <span class="button-index">01</span>
-        <span><strong>Toggle policy view</strong><small>Pause or resume without unloading</small></span>
+        <span><strong data-i18n="togglePolicy">Toggle policy view</strong><small data-i18n="pauseResume">Pause or resume without unloading</small></span>
       </button>
       <div class="split">
         <button id="toggle-autoload" class="secondary" type="button" disabled>
           <span class="button-index">02</span>
-          <span><strong>Autoload</strong><small id="autoload-action">Change boot state</small></span>
+          <span><strong data-i18n="autoload">Autoload</strong><small id="autoload-action" data-i18n="changeBootState">Change boot state</small></span>
         </button>
         <button id="refresh" class="secondary compact" type="button">
           <span class="refresh-mark" aria-hidden="true">R</span>
-          <span><strong>Refresh</strong><small>Read live state</small></span>
+          <span><strong data-i18n="refresh">Refresh</strong><small data-i18n="readLiveState">Read live state</small></span>
         </button>
       </div>
       <button id="shutdown" class="danger" type="button" disabled>
-        Disable autoload and unload module
+        <span data-i18n="shutdown">Disable autoload and unload module</span>
       </button>
     </section>
 
     <section class="console reveal delay-4" aria-live="polite">
-      <div class="console-head"><span>RECEIVER</span><span id="bridge-state">CHECKING</span></div>
-      <pre id="console-output">No command issued.</pre>
+      <div class="console-head"><span data-i18n="receiver">RECEIVER</span><span id="bridge-state" data-i18n="checking">CHECKING</span></div>
+      <pre id="console-output" data-i18n="noCommand">No command issued.</pre>
     </section>
 
     <footer class="reveal delay-4">

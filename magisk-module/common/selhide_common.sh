@@ -754,6 +754,8 @@ enable_autoload() {
     trial_matches_current || {
         log_msg "autoload refused: no trial for current runtime identity"
         write_status blocked trial-required-for-current-artifact
+        echo "ERROR: the current KO, loader, and clean policy have not passed a guarded trial." >&2
+        echo "Run 'selhide_ctl.sh trial $TRIAL_SECONDS', then enable autoload again." >&2
         return 60
     }
     rm -f "$SAFE_MODE_FILE" "$MODDIR/disable"
