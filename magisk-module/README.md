@@ -94,6 +94,10 @@ parameter. `hiding-on` resumes clean-policy responses immediately. The desired
 mode is persistent and is applied to later manual or boot loads; guarded trials
 always test with hiding enabled.
 
+WebUI controller responses are wrapped in a single-line Base64 envelope for
+compatibility with hosts whose synchronous `ksu.exec()` bridge returns only the
+last output line. Hosts returning the complete output remain supported.
+
 ## Apply List
 
 The default `sync` mode continuously mirrors Magisk's denylist while SelHide is

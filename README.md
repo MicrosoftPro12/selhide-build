@@ -66,6 +66,10 @@ A persisted pass-through preference no longer sends `clean_access=0` into
 module initialization. SelHide initializes its clean-policy hooks first, then
 switches the live parameter to pass-through and verifies the resulting state.
 
+WebUI shell responses use a single-line Base64 envelope so status output also
+works in hosts whose synchronous `ksu.exec()` bridge returns only the final
+output line. The legacy multi-line response parser remains available.
+
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight
 /data/adb/modules/selhide/bin/selhide_ctl.sh trial 60

@@ -289,6 +289,26 @@ function hasBridge() {
 
 function parseResult(raw) {
   const text = String(raw ?? "");
+  const envelope = "__SELHIDE_RESULT__=";
+  const envelopeAt = text.lastIndexOf(envelope);
+  if (envelopeAt >= 0) {
+    const payload = text.slice(envelopeAt + envelope.length).trim();
+    const separatorAt = payload.indexOf(":");
+    if (separatorAt < 0) return { code: 255, output: "" };
+    const code = Number.parseInt(payload.slice(0, separatorAt), 10);
+    if (!Number.isInteger(code)) return { code: 255, output: "" };
+    try {
+      const binary = globalThis.atob(payload.slice(separatorAt + 1));
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+      const output = typeof globalThis.TextDecoder === "function"
+        ? new globalThis.TextDecoder().decode(bytes)
+        : decodeURIComponent(Array.from(bytes, byte =>
+          `%${byte.toString(16).padStart(2, "0")}`).join(""));
+      return { code, output: output.trim() };
+    } catch {
+      return { code: 255, output: "" };
+    }
+  }
   const marker = "__SELHIDE_RC__=";
   const markerAt = text.lastIndexOf(marker);
   if (markerAt < 0) return { code: 255, output: text.trim() };
@@ -322,7 +342,8 @@ function execute(command, argument = "") {
       : packageCommands.has(command) ? normalizePackage(argument) : "";
   }
   const suffix = normalizedArgument ? ` ${normalizedArgument}` : "";
-  const shell = `${CTL} ${command}${suffix} 2>&1; rc=$?; printf '\n__SELHIDE_RC__=%s\n' "$rc"`;
+  const invocation = `${CTL} ${command}${suffix}`;
+  const shell = `raw_output="$(${invocation} 2>&1)"; rc=$?; encoded_output="$(printf '%s' "$raw_output" | base64 | tr -d '\\r\\n')"; printf '__SELHIDE_RESULT__=%s:%s\\n' "$rc" "$encoded_output"`;
   return parseResult(globalThis.ksu.exec(shell));
 }
 
