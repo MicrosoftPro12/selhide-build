@@ -100,6 +100,7 @@ action_modules="$action_state/proc_modules"
 action_param="$action_state/clean_access"
 action_apply_param="$action_state/apply_appids"
 action_filter_param="$action_state/apply_filter"
+action_cmd_fail="$action_state/cmd.fail"
 cp -a "$MODULE_ROOT/." "$action_root/"
 mkdir -p "$action_root/payload/modules/test" "$action_root/bin"
 printf '%s\n' module > "$action_root/payload/modules/test/selhide.ko"
@@ -152,6 +153,24 @@ EOF
 cat > "$action_bin/cmd" <<'EOF'
 #!/bin/sh
 [ "$*" = 'package list packages -U' ] || exit 2
+[ ! -f "${SELHIDE_CMD_FAIL_FILE:-}" ] || {
+    echo 'simulated cmd package failure' >&2
+    exit 2
+}
+if [ "${SELHIDE_CMD_REQUIRE_PIPE:-0}" = 1 ]; then
+    case "$(readlink "/proc/$$/fd/1" 2>/dev/null)" in
+        pipe:*) ;;
+        *) echo 'output descriptor is not a pipe' >&2; exit 2 ;;
+    esac
+fi
+printf '%s\n' \
+    'package:com.example.alpha uid:10123' \
+    'package:com.example.beta uid:10124' \
+    'package:com.example.extra uid:10125'
+EOF
+cat > "$action_bin/pm" <<'EOF'
+#!/bin/sh
+[ "$*" = 'list packages -U' ] || exit 2
 printf '%s\n' \
     'package:com.example.alpha uid:10123' \
     'package:com.example.beta uid:10124' \
@@ -167,7 +186,7 @@ EOF
 chmod 0755 "$action_root/bin/find_clean_sepolicy_load.sh" \
     "$action_root/bin/kallsyms_init_module" "$action_bin/rmmod" \
     "$action_bin/sleep" "$action_bin/getevent" "$action_bin/magisk" \
-    "$action_bin/cmd"
+    "$action_bin/cmd" "$action_bin/pm"
 printf '%s\n' 'GUARD_SECONDS=5' 'TRIAL_SECONDS=5' 'APPLY_SYNC_SECONDS=300' > "$action_state/config.conf"
 
 run_action() {
@@ -177,6 +196,8 @@ run_action() {
     SELHIDE_CLEAN_ACCESS_PARAM="$action_param" \
     SELHIDE_APPLY_APPIDS_PARAM="$action_apply_param" \
     SELHIDE_APPLY_FILTER_PARAM="$action_filter_param" \
+    SELHIDE_CMD_FAIL_FILE="$action_cmd_fail" \
+    SELHIDE_CMD_REQUIRE_PIPE=1 \
     SELHIDE_ACTION_KEY_FILE="$action_state/action.key" \
     PATH="$action_bin:$PATH" \
         sh "$action_root/action.sh" > "$action_state/action.out" 2>&1
@@ -188,6 +209,8 @@ run_ctl() {
     SELHIDE_CLEAN_ACCESS_PARAM="$action_param" \
     SELHIDE_APPLY_APPIDS_PARAM="$action_apply_param" \
     SELHIDE_APPLY_FILTER_PARAM="$action_filter_param" \
+    SELHIDE_CMD_FAIL_FILE="$action_cmd_fail" \
+    SELHIDE_CMD_REQUIRE_PIPE=1 \
     PATH="$action_bin:$PATH" \
         sh "$action_root/bin/selhide_ctl.sh" "$@"
 }
@@ -200,6 +223,11 @@ grep -Fq 'have not passed a guarded trial' "$action_state/autoload-error.out" ||
 pretrial_web_status="$(run_ctl web-status)"
 printf '%s\n' "$pretrial_web_status" | grep -Fx 'trial_seconds=5' >/dev/null ||
     fail "WebUI status missed configured trial duration"
+touch "$action_cmd_fail"
+run_ctl apply-sync-now >/dev/null || fail "pm fallback did not recover a cmd package failure"
+grep -Fq 'package UID query recovered via pm fallback' "$action_state/selhide.log" ||
+    fail "pm fallback recovery was not logged"
+rm -f "$action_cmd_fail"
 
 run_action up || fail "first Action trial failed"
 [ -f "$action_state/trial_passed" ] || fail "first Action tap did not record trial"

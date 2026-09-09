@@ -58,6 +58,9 @@ intentionally not created.
 
 The WebUI follows the host WebView's system language on first launch and
 supports a persistent English / Simplified Chinese switch in the header.
+Package-to-appId resolution retries through Android's `pm` frontend when the
+lower-level `cmd package` query is unavailable, and records both failures when
+the Package Manager is not ready.
 
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight

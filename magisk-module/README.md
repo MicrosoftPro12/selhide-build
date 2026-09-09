@@ -17,6 +17,11 @@ On first launch, the WebUI selects English or Simplified Chinese from the
 system WebView language. The header switch stores an explicit user choice when
 the host permits WebView local storage.
 
+If Android's low-level `cmd package` query fails while resolving the apply
+list, the controller retries through `pm`. A failure of both paths blocks the
+load before arming the panic guard and records their return codes in
+`/data/adb/selhide/selhide.log`.
+
 The Magisk Action remains a volume-key fallback:
 
 1. Before validation, press Volume Up to run preflight and a timed guarded

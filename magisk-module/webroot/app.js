@@ -98,6 +98,7 @@ const messages = {
     policyChanged: "Policy view changed.",
     autoloadChanged: "Autoload state changed.",
     autoloadTrialRequired: "Autoload is locked because this exact KO, loader, and clean policy have not passed a guarded trial.",
+    applyScopeFailed: "Application scope preparation failed. Android Package Manager could not map the Magisk denylist to appIds; retry Sync now after it is ready.",
     trialConfirm: "Run a guarded {seconds}-second trial now? Keep this WebUI host open and run DirtySepolicy during the trial. SelHide will unload before the trial is recorded as passed.",
     trialPending: "Guarded {seconds}s trial is running. Keep this WebUI host open and run DirtySepolicy now. SelHide will unload automatically.",
     trialPassed: "Guarded trial passed and SelHide unloaded. Press Autoload again to enable boot loading.",
@@ -191,6 +192,7 @@ const messages = {
     policyChanged: "策略视图已切换。",
     autoloadChanged: "自动加载状态已更新。",
     autoloadTrialRequired: "自动加载仍被锁定：当前 KO、加载器与干净策略尚未通过安全试运行。",
+    applyScopeFailed: "应用范围准备失败。Android Package Manager 无法将 Magisk 排除列表映射为 appId；请等待其就绪后重试“立即同步”。",
     trialConfirm: "现在执行 {seconds} 秒安全试运行吗？请保持 WebUI 宿主开启，并在试运行期间启动 DirtySepolicy。试运行被记录为通过前，SelHide 会先自动卸载。",
     trialPending: "{seconds} 秒安全试运行正在进行。请保持 WebUI 宿主开启并立即运行 DirtySepolicy，SelHide 随后会自动卸载。",
     trialPassed: "安全试运行已通过，SelHide 已卸载。请再次点击“自动加载”以启用开机加载。",
@@ -432,6 +434,7 @@ function report(message) {
 
 function commandError(command, result) {
   if (command === "enable-autoload" && result.code === 60) return t("autoloadTrialRequired");
+  if (result.code === 61) return t("applyScopeFailed");
   return result.output || t("genericFailed", { command, code: result.code });
 }
 

@@ -237,7 +237,7 @@ magisk_cli() {
 capture_magisk_denylist() {
     apply_output="$1"
     apply_raw="$(mktemp "$STATE_DIR/.magisk-denylist.XXXXXX")" || return 1
-    magisk_cli --denylist ls > "$apply_raw" 2>/dev/null
+    magisk_cli --denylist ls < /dev/null > "$apply_raw" 2>/dev/null
     apply_rc=$?
     if [ "$apply_rc" -ne 0 ]; then
         rm -f "$apply_raw"
@@ -255,6 +255,50 @@ normalize_apply_package() {
         ''|.*|*.|*..*|*[!A-Za-z0-9._]*) return 90 ;;
     esac
     NORMALIZED_APPLY_PACKAGE="$apply_package"
+}
+
+query_package_uid_map() {
+    query_output="$1"
+    query_status="$(mktemp "$STATE_DIR/.package-uids-status.XXXXXX")" || return 1
+    query_rc=71
+
+    if command -v cmd >/dev/null 2>&1; then
+        # PackageManager runs inside system_server and receives cmd's output
+        # descriptor over Binder. It may reject a descriptor opened directly
+        # on magisk_file, so bridge output through a pipe before writing state.
+        { cmd package list packages -U < /dev/null 2>&1; echo "$?" > "$query_status"; } |
+            cat > "$query_output"
+        query_rc="$(cat "$query_status" 2>/dev/null || true)"
+        case "$query_rc" in
+            ''|*[!0-9]*) query_rc=1 ;;
+        esac
+        if [ "$query_rc" -eq 0 ]; then
+            rm -f "$query_status"
+            return 0
+        fi
+        query_detail="$(tail -n 1 "$query_output" 2>/dev/null | tr '\r\n' ' ' | cut -c 1-160)"
+        log_msg "package UID query via cmd failed rc=$query_rc detail=$query_detail"
+    fi
+
+    if command -v pm >/dev/null 2>&1; then
+        : > "$query_status"
+        { pm list packages -U < /dev/null 2>&1; echo "$?" > "$query_status"; } |
+            cat > "$query_output"
+        query_rc="$(cat "$query_status" 2>/dev/null || true)"
+        case "$query_rc" in
+            ''|*[!0-9]*) query_rc=1 ;;
+        esac
+        if [ "$query_rc" -eq 0 ]; then
+            log_msg "package UID query recovered via pm fallback"
+            rm -f "$query_status"
+            return 0
+        fi
+        query_detail="$(tail -n 1 "$query_output" 2>/dev/null | tr '\r\n' ' ' | cut -c 1-160)"
+        log_msg "package UID query via pm failed rc=$query_rc detail=$query_detail"
+    fi
+
+    rm -f "$query_status"
+    return "$query_rc"
 }
 
 build_apply_appids() {
@@ -282,14 +326,11 @@ build_apply_appids() {
     sort -u "$apply_packages" > "$apply_packages.sorted"
     mv -f "$apply_packages.sorted" "$apply_packages"
 
-    if command -v cmd >/dev/null 2>&1; then
-        cmd package list packages -U > "$apply_raw_map" 2>/dev/null
-    elif command -v pm >/dev/null 2>&1; then
-        pm list packages -U > "$apply_raw_map" 2>/dev/null
-    else
+    if ! command -v cmd >/dev/null 2>&1 && ! command -v pm >/dev/null 2>&1; then
         rm -f "$apply_packages" "$apply_map" "$apply_raw_map"
         return 71
     fi
+    query_package_uid_map "$apply_raw_map"
     apply_rc=$?
     if [ "$apply_rc" -ne 0 ]; then
         rm -f "$apply_packages" "$apply_map" "$apply_raw_map"
@@ -679,11 +720,15 @@ load_guarded() {
         write_status blocked trial-identity-mismatch
         return 60
     fi
-    prepare_apply_list || {
-        log_msg "load refused: apply list unavailable"
-        write_status blocked apply-list-unavailable
+    prepare_apply_list
+    apply_rc=$?
+    if [ "$apply_rc" -ne 0 ]; then
+        log_msg "load refused: apply list unavailable rc=$apply_rc mode=$(apply_list_mode)"
+        write_status blocked "apply-list-rc-$apply_rc"
+        echo "ERROR: application scope preparation failed (rc=$apply_rc, mode=$(apply_list_mode))." >&2
+        echo "Retry after Android Package Manager is ready, then refresh the apply list." >&2
         return 61
-    }
+    fi
     arm_panic_guard "$mode" || return 41
     guard_id="$ARMED_GUARD_ID"
 
