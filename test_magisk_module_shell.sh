@@ -335,6 +335,12 @@ grep -Fq 'navigator?.languages' "$MODULE_ROOT/webroot/app.js" ||
     fail "WebUI does not inspect the system language"
 grep -Fq '__SELHIDE_RESULT__=' "$MODULE_ROOT/webroot/app.js" ||
     fail "WebUI is missing its fastCmd-compatible response envelope"
+grep -Fq 'ksu://icon/' "$MODULE_ROOT/webroot/app.js" ||
+    fail "WebUI application list is missing host-provided icons"
+grep -Fq 'getPackagesInfo' "$MODULE_ROOT/webroot/app.js" ||
+    fail "WebUI application list is missing host package metadata"
+grep -Fq 'data-theme="material"' "$MODULE_ROOT/webroot/index.html" ||
+    fail "WebUI dashboard theme default is missing"
 grep -Fq 'id="language-toggle"' "$MODULE_ROOT/webroot/index.html" ||
     fail "WebUI language control is missing"
 

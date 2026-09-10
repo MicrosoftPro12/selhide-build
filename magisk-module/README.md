@@ -98,6 +98,10 @@ WebUI controller responses are wrapped in a single-line Base64 envelope for
 compatibility with hosts whose synchronous `ksu.exec()` bridge returns only the
 last output line. Hosts returning the complete output remain supported.
 
+The dashboard offers Material 3, Material Expressive, and MIUIX-style themes.
+In manual apply-list mode it uses compatible host package APIs for searchable
+application labels and icons, with a package-name fallback on older hosts.
+
 ## Apply List
 
 The default `sync` mode continuously mirrors Magisk's denylist while SelHide is

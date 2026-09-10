@@ -1,5 +1,7 @@
 const CTL = "/data/adb/modules/selhide/bin/selhide_ctl.sh";
 const LANGUAGE_KEY = "selhide-language";
+const THEME_KEY = "selhide-theme";
+const THEMES = ["material", "expressive", "miuix"];
 const allowedCommands = new Set([
   "web-status",
   "trial",
@@ -20,6 +22,10 @@ const messages = {
   en: {
     documentTitle: "SelHide Control",
     switchLanguage: "Switch interface language",
+    switchTheme: "Switch theme. Current: {theme}",
+    themeMaterial: "Material 3",
+    themeExpressive: "Material Expressive",
+    themeMiuix: "MIUIX",
     eyebrow: "SELINUX POLICY LENS",
     controlRoom: "Control Room",
     lede: "Keep the kernel module attached. Switch its policy view without a reload.",
@@ -27,13 +33,24 @@ const messages = {
     connecting: "Connecting",
     waitingBridge: "Waiting for the root command bridge.",
     statusLabel: "SelHide status",
+    moduleStatus: "Module status",
     metricModule: "MODULE",
     metricAutoload: "AUTOLOAD",
     metricTrial: "TRIAL",
     metricGuard: "GUARD",
+    moduleStatusCopy: "Kernel attachment state",
+    autoloadStatusCopy: "Boot loading preference",
+    trialStatusCopy: "Artifact validation",
+    guardStatusCopy: "Panic recovery state",
     applicationScope: "Application scope",
     magiskDenylist: "Magisk denylist",
     readingSet: "Reading the selected package set.",
+    searchApps: "Search apps",
+    selectedCount: "{selected} selected",
+    selectedOfCount: "{selected} / {count}",
+    loadingApps: "Loading application catalog...",
+    noMatchingApps: "No applications match this search.",
+    catalogUnavailable: "This host cannot enumerate installed apps. Selected packages and manual package entry remain available.",
     packageName: "Package name",
     packagePlaceholder: "com.example.app",
     add: "Add",
@@ -49,6 +66,7 @@ const messages = {
     readLiveState: "Read live state",
     shutdown: "Disable autoload and unload module",
     receiver: "RECEIVER",
+    diagnostics: "Diagnostics",
     checking: "CHECKING",
     noCommand: "No command issued.",
     busy: "BUSY",
@@ -110,10 +128,20 @@ const messages = {
     syncDone: "Magisk denylist synchronized.",
     clearConfirm: "Clear the entire manual apply list?",
     clearDone: "Manual apply list cleared.",
+    safeModeWarning: "Persistent safe mode is active",
+    safeModeWarningCopy: "Kernel actions are blocked until the recovered artifact is reviewed and safe mode is cleared outside the WebUI.",
+    panicGuardWarning: "Panic guard is armed",
+    panicGuardWarningCopy: "The previous boot did not complete its stability window. Avoid enabling autoload until the device is confirmed stable.",
+    trialWarning: "This artifact still needs a guarded trial",
+    trialWarningCopy: "Run the timed trial before enabling boot loading for this exact kernel module, loader, and clean policy.",
   },
   "zh-CN": {
     documentTitle: "SelHide 控制中心",
     switchLanguage: "切换界面语言",
+    switchTheme: "切换主题，当前：{theme}",
+    themeMaterial: "Material 3",
+    themeExpressive: "Material Expressive",
+    themeMiuix: "MIUIX",
     eyebrow: "SELINUX 策略视图",
     controlRoom: "控制中心",
     lede: "保持内核模块挂载，无需重新加载即可切换策略视图。",
@@ -121,13 +149,24 @@ const messages = {
     connecting: "正在连接",
     waitingBridge: "正在等待 Root 命令桥接。",
     statusLabel: "SelHide 状态",
+    moduleStatus: "模块状态",
     metricModule: "模块",
     metricAutoload: "自动加载",
     metricTrial: "试运行",
     metricGuard: "保护",
+    moduleStatusCopy: "内核模块挂载状态",
+    autoloadStatusCopy: "开机加载设置",
+    trialStatusCopy: "当前产物验证状态",
+    guardStatusCopy: "崩溃恢复保护状态",
     applicationScope: "应用范围",
     magiskDenylist: "Magisk 排除列表",
     readingSet: "正在读取已选应用。",
+    searchApps: "搜索应用",
+    selectedCount: "已选 {selected} 个",
+    selectedOfCount: "{selected} / {count}",
+    loadingApps: "正在读取应用列表……",
+    noMatchingApps: "没有符合搜索条件的应用。",
+    catalogUnavailable: "当前宿主无法枚举已安装应用；仍可查看已选包名并手动输入包名。",
     packageName: "应用包名",
     packagePlaceholder: "com.example.app",
     add: "添加",
@@ -143,6 +182,7 @@ const messages = {
     readLiveState: "读取实时状态",
     shutdown: "关闭自动加载并卸载模块",
     receiver: "接收器",
+    diagnostics: "诊断信息",
     checking: "检查中",
     noCommand: "尚未执行命令。",
     busy: "忙碌",
@@ -204,6 +244,12 @@ const messages = {
     syncDone: "Magisk 排除列表已同步。",
     clearConfirm: "确定清空整个手动应用列表吗？",
     clearDone: "手动应用列表已清空。",
+    safeModeWarning: "持久安全模式已启用",
+    safeModeWarningCopy: "在外部检查恢复后的产物并清除安全模式前，WebUI 将阻止内核操作。",
+    panicGuardWarning: "崩溃保护仍在布防",
+    panicGuardWarningCopy: "上一次启动尚未通过稳定窗口，在确认设备稳定前请勿启用自动加载。",
+    trialWarning: "当前产物仍需安全试运行",
+    trialWarningCopy: "请先为这一组内核模块、加载器与干净策略完成限时试运行，再启用开机加载。",
   },
 };
 
@@ -220,14 +266,20 @@ const elements = {
   kernel: document.querySelector("#kernel-release"),
   lastState: document.querySelector("#last-state"),
   languageToggle: document.querySelector("#language-toggle"),
+  themeCycle: document.querySelector("#theme-cycle"),
+  warningCard: document.querySelector("#warning-card"),
+  warningTitle: document.querySelector("#warning-title"),
+  warningCopy: document.querySelector("#warning-copy"),
   toggleHiding: document.querySelector("#toggle-hiding"),
   toggleAutoload: document.querySelector("#toggle-autoload"),
   autoloadAction: document.querySelector("#autoload-action"),
   refresh: document.querySelector("#refresh"),
   shutdown: document.querySelector("#shutdown"),
   applyMode: document.querySelector("#apply-mode"),
+  applyCount: document.querySelector("#apply-count"),
   applyCopy: document.querySelector("#apply-copy"),
   applyEntries: document.querySelector("#apply-entries"),
+  appSearch: document.querySelector("#app-search"),
   applyForm: document.querySelector("#apply-form"),
   packageInput: document.querySelector("#package-input"),
   applyAdd: document.querySelector("#apply-add"),
@@ -257,9 +309,63 @@ function detectLanguage() {
     : "en";
 }
 
+function currentTheme() {
+  try {
+    const stored = globalThis.localStorage?.getItem(THEME_KEY);
+    if (THEMES.includes(stored)) return stored;
+  } catch (_error) {
+    // Keep the static default when storage is unavailable.
+  }
+  return THEMES.includes(document.documentElement.dataset.theme)
+    ? document.documentElement.dataset.theme
+    : THEMES[0];
+}
+
+function themeLabel(theme) {
+  const key = {
+    material: "themeMaterial",
+    expressive: "themeExpressive",
+    miuix: "themeMiuix",
+  }[theme];
+  return t(key || "themeMaterial");
+}
+
+function applyTheme(theme) {
+  const selected = THEMES.includes(theme) ? theme : THEMES[0];
+  document.documentElement.dataset.theme = selected;
+  const label = t("switchTheme", { theme: themeLabel(selected) });
+  elements.themeCycle.setAttribute("aria-label", label);
+  elements.themeCycle.title = label;
+}
+
+function cycleTheme() {
+  const index = THEMES.indexOf(currentTheme());
+  const next = THEMES[(index + 1) % THEMES.length];
+  try {
+    globalThis.localStorage?.setItem(THEME_KEY, next);
+  } catch (_error) {
+    // The selected theme still applies for this page session.
+  }
+  applyTheme(next);
+}
+
+function installHostThemeStyles() {
+  if (!hasBridge() || document.querySelector("link[data-host-theme]")) return;
+  for (const name of ["insets", "colors"]) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = `https://mui.kernelsu.org/internal/${name}.css`;
+    link.dataset.hostTheme = name;
+    document.head.append(link);
+  }
+}
+
 let language = detectLanguage();
 let status = null;
 let busy = false;
+let appCatalog = [];
+let catalogLoaded = false;
+let catalogHostBacked = false;
 
 function t(key, variables = {}) {
   const template = messages[language]?.[key] ?? messages.en[key] ?? key;
@@ -280,6 +386,7 @@ function applyLanguage() {
   });
   elements.languageToggle.textContent = language === "zh-CN" ? "EN" : "中文";
   elements.languageToggle.setAttribute("aria-label", t("switchLanguage"));
+  applyTheme(currentTheme());
   render();
 }
 
@@ -370,9 +477,132 @@ function selectedPackages() {
   return String(status?.apply_packages || "").split(",").filter(Boolean);
 }
 
+function parseHostJson(value, fallback) {
+  try {
+    if (typeof value === "string") return JSON.parse(value);
+    return value ?? fallback;
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function validPackageName(value) {
+  return /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/.test(String(value || ""));
+}
+
+function packageFallbackLabel(packageName) {
+  const leaf = packageName.split(".").pop() || packageName;
+  return leaf.replace(/[_-]+/g, " ").replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function hostPackageNames() {
+  if (typeof globalThis.ksu?.listPackages !== "function") return [];
+  const raw = globalThis.ksu.listPackages("user");
+  const packages = parseHostJson(raw, []);
+  return Array.isArray(packages) ? packages.filter(validPackageName) : [];
+}
+
+function hostPackageInfo(packageNames) {
+  if (packageNames.length === 0 || typeof globalThis.ksu?.getPackagesInfo !== "function") return new Map();
+  const infoByPackage = new Map();
+  for (let offset = 0; offset < packageNames.length; offset += 80) {
+    const batch = packageNames.slice(offset, offset + 80);
+    const raw = globalThis.ksu.getPackagesInfo(JSON.stringify(batch));
+    const infos = parseHostJson(raw, []);
+    if (!Array.isArray(infos)) continue;
+    for (const info of infos) {
+      if (info && validPackageName(info.packageName)) infoByPackage.set(info.packageName, info);
+    }
+  }
+  return infoByPackage;
+}
+
+function refreshAppCatalog(force = false) {
+  if (catalogLoaded && !force) {
+    const known = new Set(appCatalog.map(entry => entry.packageName));
+    for (const packageName of selectedPackages()) {
+      if (!known.has(packageName)) {
+        appCatalog.push({ packageName, appName: packageFallbackLabel(packageName) });
+      }
+    }
+    return;
+  }
+
+  catalogLoaded = true;
+  let packageNames = [];
+  try {
+    packageNames = hostPackageNames();
+  } catch (_error) {
+    packageNames = [];
+  }
+  catalogHostBacked = packageNames.length > 0;
+  packageNames = [...new Set([...packageNames, ...selectedPackages()])];
+
+  let infoByPackage = new Map();
+  try {
+    infoByPackage = hostPackageInfo(packageNames);
+  } catch (_error) {
+    infoByPackage = new Map();
+  }
+  appCatalog = packageNames.map((packageName) => {
+    const info = infoByPackage.get(packageName);
+    return {
+      packageName,
+      appName: String(info?.appLabel || packageFallbackLabel(packageName)),
+    };
+  });
+}
+
+function createAppRow(entry, selected, disabled) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = `app-row${selected ? " selected" : ""}`;
+  row.disabled = disabled;
+  row.dataset.package = entry.packageName;
+
+  const icon = document.createElement("span");
+  icon.className = "app-icon";
+  icon.textContent = (entry.appName || entry.packageName).slice(0, 1).toUpperCase();
+  if (entry.packageName.includes(".")) {
+    const image = document.createElement("img");
+    image.alt = "";
+    image.loading = "lazy";
+    image.src = `ksu://icon/${entry.packageName}`;
+    image.addEventListener("error", () => image.remove());
+    icon.append(image);
+  }
+
+  const copy = document.createElement("span");
+  copy.className = "app-text";
+  const appName = document.createElement("span");
+  appName.className = "app-name";
+  appName.textContent = entry.appName;
+  const packageName = document.createElement("span");
+  packageName.className = "package-name";
+  packageName.textContent = entry.packageName;
+  copy.append(appName, packageName);
+
+  const check = document.createElement("span");
+  check.className = "app-check";
+  check.setAttribute("aria-hidden", "true");
+  row.append(icon, copy, check);
+  row.setAttribute("aria-pressed", String(selected));
+  if (!disabled) {
+    row.addEventListener("click", () => runControl(
+      selected ? "apply-remove" : "apply-add",
+      selected
+        ? t("removed", { package: entry.packageName })
+        : t("packageAdded", { package: entry.packageName }),
+      entry.packageName,
+    ));
+  }
+  return row;
+}
+
 function renderApplyList(blocked) {
   const syncMode = status?.apply_mode !== "manual";
   const packages = selectedPackages();
+  const selected = new Set(packages);
   elements.applyMode.textContent = syncMode ? t("syncLocked") : t("manual");
   elements.applyCopy.textContent = syncMode ? t("syncDescription") : t("manualDescription");
   elements.applyModeToggle.textContent = syncMode ? t("editableSnapshot") : t("followMagisk");
@@ -383,30 +613,63 @@ function renderApplyList(blocked) {
   elements.applyAdd.disabled = blocked || !status || syncMode;
 
   elements.applyEntries.replaceChildren();
-  if (packages.length === 0) {
+  let entries = syncMode
+    ? appCatalog.filter(entry => selected.has(entry.packageName))
+    : [...appCatalog];
+  const query = elements.appSearch.value.trim().toLocaleLowerCase();
+  if (query) {
+    entries = entries.filter(entry =>
+      entry.packageName.toLocaleLowerCase().includes(query) ||
+      entry.appName.toLocaleLowerCase().includes(query));
+  }
+  entries.sort((left, right) => {
+    const selectedDifference = Number(selected.has(right.packageName)) - Number(selected.has(left.packageName));
+    return selectedDifference || left.appName.localeCompare(right.appName, language);
+  });
+  elements.applyCount.textContent = syncMode
+    ? t("selectedCount", { selected: packages.length })
+    : t("selectedOfCount", { selected: packages.length, count: appCatalog.length });
+
+  if (entries.length === 0) {
     const empty = document.createElement("p");
-    empty.className = "apply-empty";
-    empty.textContent = t("noPackages");
+    empty.className = "app-empty";
+    empty.textContent = query ? t("noMatchingApps") : t("noPackages");
     elements.applyEntries.append(empty);
-    return;
+  } else {
+    const fragment = document.createDocumentFragment();
+    for (const entry of entries) {
+      fragment.append(createAppRow(entry, selected.has(entry.packageName), blocked || syncMode));
+    }
+    elements.applyEntries.append(fragment);
   }
-  for (const packageName of packages) {
-    const row = document.createElement("div");
-    row.className = "apply-entry";
-    const name = document.createElement("code");
-    name.textContent = packageName;
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.textContent = t("remove");
-    remove.disabled = blocked || syncMode;
-    remove.addEventListener("click", () => runControl(
-      "apply-remove",
-      t("removed", { package: packageName }),
-      packageName,
-    ));
-    row.append(name, remove);
-    elements.applyEntries.append(row);
+
+  if (!syncMode && !catalogHostBacked) {
+    const fallback = document.createElement("p");
+    fallback.className = "app-empty";
+    fallback.textContent = t("catalogUnavailable");
+    elements.applyEntries.append(fallback);
   }
+}
+
+function renderWarning() {
+  let title = "";
+  let copy = "";
+  let tone = "warning";
+  if (status.safe_mode === "1") {
+    title = t("safeModeWarning");
+    copy = t("safeModeWarningCopy");
+    tone = "fatal";
+  } else if (status.panic_guard === "1") {
+    title = t("panicGuardWarning");
+    copy = t("panicGuardWarningCopy");
+  } else if (status.trial_current !== "1") {
+    title = t("trialWarning");
+    copy = t("trialWarningCopy");
+  }
+  elements.warningCard.classList.toggle("hidden", !title);
+  elements.warningCard.dataset.tone = tone;
+  elements.warningTitle.textContent = title;
+  elements.warningCopy.textContent = copy;
 }
 
 function render() {
@@ -419,21 +682,25 @@ function render() {
   elements.shutdown.disabled = blocked || !status;
   if (!status) return;
   renderApplyList(blocked);
+  renderWarning();
 
   const loaded = status.module_loaded === "1";
   const active = status.hiding_runtime === "active";
   const paused = status.hiding_runtime === "passthrough" || status.hiding_desired === "passthrough";
-  elements.modeCard.classList.remove("active", "paused", "off");
-  if (loaded && active) {
-    elements.modeCard.classList.add("active");
+  if (status.safe_mode === "1") {
+    elements.modeCard.dataset.status = "fatal";
+    elements.modeTitle.textContent = t("safeMode");
+    elements.modeCopy.textContent = t("safeModeWarningCopy");
+  } else if (loaded && active) {
+    elements.modeCard.dataset.status = "ok";
     elements.modeTitle.textContent = t("hidingActive");
     elements.modeCopy.textContent = t("hidingActiveCopy");
   } else if (paused) {
-    elements.modeCard.classList.add("paused");
+    elements.modeCard.dataset.status = "warning";
     elements.modeTitle.textContent = t("passthrough");
     elements.modeCopy.textContent = loaded ? t("passthroughLoadedCopy") : t("passthroughNextCopy");
   } else {
-    elements.modeCard.classList.add("off");
+    elements.modeCard.dataset.status = "idle";
     elements.modeTitle.textContent = t("moduleDetached");
     elements.modeCopy.textContent = t("moduleDetachedCopy");
   }
@@ -459,7 +726,7 @@ function commandError(command, result) {
   return result.output || t("genericFailed", { command, code: result.code });
 }
 
-async function refreshStatus() {
+async function refreshStatus(forceCatalog = false) {
   if (busy) return;
   if (!hasBridge()) {
     report(t("hostRequired"));
@@ -472,6 +739,7 @@ async function refreshStatus() {
     const result = execute("web-status");
     if (result.code !== 0) throw new Error(result.output || t("statusFailed", { code: result.code }));
     status = parseStatus(result.output);
+    refreshAppCatalog(forceCatalog);
     report(t("statusReceived"));
   } catch (error) {
     report(t("error", { message: error.message }));
@@ -490,7 +758,10 @@ async function runControl(command, successMessage, argument = "", pendingMessage
     if (result.code !== 0) throw new Error(commandError(command, result));
     report(successMessage || result.output || t("commandCompleted"));
     const latest = execute("web-status");
-    if (latest.code === 0) status = parseStatus(latest.output);
+    if (latest.code === 0) {
+      status = parseStatus(latest.output);
+      refreshAppCatalog();
+    }
   } catch (error) {
     report(t("error", { message: error.message }));
   } finally {
@@ -507,6 +778,7 @@ elements.languageToggle.addEventListener("click", () => {
   }
   applyLanguage();
 });
+elements.themeCycle.addEventListener("click", cycleTheme);
 elements.toggleHiding.addEventListener("click", () => runControl("toggle-hiding", t("policyChanged")));
 elements.toggleAutoload.addEventListener("click", () => {
   if (status?.autoload === "1") {
@@ -527,7 +799,7 @@ elements.toggleAutoload.addEventListener("click", () => {
   }
   runControl("enable-autoload", t("autoloadChanged"));
 });
-elements.refresh.addEventListener("click", refreshStatus);
+elements.refresh.addEventListener("click", () => refreshStatus(true));
 elements.shutdown.addEventListener("click", () => {
   if (globalThis.confirm(t("shutdownConfirm"))) {
     runControl("shutdown", t("shutdownDone"));
@@ -556,10 +828,18 @@ elements.applyClear.addEventListener("click", () => {
     runControl("apply-clear", t("clearDone"));
   }
 });
+elements.appSearch.addEventListener("input", () => {
+  if (status) renderApplyList(!hasBridge() || busy);
+});
+
+globalThis.addEventListener("scroll", () => {
+  document.querySelector(".app-bar")?.classList.toggle("scrolled", globalThis.scrollY > 28);
+}, { passive: true });
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refreshStatus();
 });
 
+installHostThemeStyles();
 applyLanguage();
 refreshStatus();

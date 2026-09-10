@@ -70,6 +70,11 @@ WebUI shell responses use a single-line Base64 envelope so status output also
 works in hosts whose synchronous `ksu.exec()` bridge returns only the final
 output line. The legacy multi-line response parser remains available.
 
+The WebUI dashboard supports Material 3, Material Expressive, and MIUIX-style
+layouts. Its manual apply-list view uses host package metadata and
+`ksu://icon/` assets when available, while older hosts fall back to selected
+package names and the manual package field.
+
 ```sh
 /data/adb/modules/selhide/bin/selhide_ctl.sh preflight
 /data/adb/modules/selhide/bin/selhide_ctl.sh trial 60
